@@ -34,6 +34,7 @@ EFI_SMM_BASE2_PROTOCOL  *gSmmBase2 = NULL;
 //
 EFI_GUID                   *gDxeCoreFileName;
 EFI_LOADED_IMAGE_PROTOCOL  *gDxeCoreLoadedImage;
+EFI_SANDBOX_ARCH_PROTOCOL         *gSandbox       = NULL;
 
 //
 // DXE Core Module Variables

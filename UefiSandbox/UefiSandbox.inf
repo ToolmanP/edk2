@@ -1,0 +1,133 @@
+
+#/** @file
+#
+#  DXE Sandbox driver
+#
+#**/
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = UefiSandboxManager
+  FILE_GUID                      = 7FD5BE03-9E0A-4106-A80D-0A20AED146B3
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SandboxInitialize
+
+[Sources]
+  UefiSandbox.c
+  UefiSandbox.h
+
+  Print.h
+
+  SystemTable/SystemTable.h
+  SystemTable/SystemTable.c
+
+  Service/ServiceManager.c
+
+  Sched/Sched.h
+  Sched/Sched.c
+
+  Exception/Exception.h
+
+  Init/ArchInit.h
+
+  Interface/Reflect.h
+  Interface/PointerList.c
+  Interface/PointerList.h
+  Interface/Magisk.h
+  Interface/Registry.h
+  Interface/Jumper.h
+  Interface/Magisk.c
+  Interface/Registry.c
+  Interface/Interface.h
+  Interface/Duplicate.c
+  Interface/Jumper.c
+  Interface/Duplicate.h
+
+  BinaryGen/BinaryGen.h
+
+  Event/Notify.c
+
+  Memory/Memory.h
+  Memory/VMSpace.c
+  Memory/Malloc.h
+  Memory/Malloc.c
+  Memory/Slab.c
+
+  Proxy/ProtocolDB.c
+  Proxy/ProtocolAnalyser.c
+  Proxy/ProtocolProxy.h
+
+  Utils/Hashmap.c
+  Utils/Hashmap.h
+
+[Sources.X64]
+  Memory/X64/PageTable.h
+  Memory/X64/PageTable.c
+
+  Exception/X64/irq.S
+  Exception/X64/Exception.c
+
+  Interface/X64/Caller.S
+
+  BinaryGen/X64/BinaryGen.c
+
+  Init/X64/ArchInit.c
+  Init/X64/Gdt.h
+  Init/X64/Tss.h
+  Init/X64/CpuInfo.h
+
+[Sources.AARCH64]
+  Memory/AArch64/PageTable.h
+  Memory/AArch64/PageTable.c
+
+  Exception/AArch64/irq.S
+  Exception/AArch64/Exception.c
+
+  Interface/AArch64/Caller.S
+
+  BinaryGen/AArch64/BinaryGen.c
+
+  Init/AArch64/ArchInit.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  RedfishPkg/RedfishPkg.dec
+
+[Packages.AARCH64]
+  ArmPkg/ArmPkg.dec
+
+[Packages.X64]
+  UefiCpuPkg/UefiCpuPkg.dec
+
+[Protocols]
+  gEfiSandboxArchProtocolGuid
+  gEfiCpuArchProtocolGuid         ## CONSUMES
+
+[LibraryClasses]
+  BaseMemoryLib
+  CpuLib
+  DebugLib
+  HobLib
+  MemoryAllocationLib
+  UefiDriverEntryPoint
+  UefiLib
+  JsonLib
+  Ucs2Utf8Lib
+  RedfishCrtLib
+
+[LibraryClasses.AARCH64]
+  DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf
+  ArmLib
+  ArmMmuLib
+
+[LibraryClasses.X64]
+  CpuPageTableLib|UefiCpuPkg/Library/CpuPageTableLib/CpuPageTableLib.inf
+
+[Depex]
+  gEfiCpuArchProtocolGuid
+
+[Guids]
+  gEfiHobListGuid                               ## CONSUMES  ## SystemTable
+  gEfiHobMemoryAllocStackGuid                   ## CONSUMES

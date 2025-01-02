@@ -45,6 +45,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/HiiPackageList.h>
 #include <Protocol/SmmBase2.h>
 #include <Protocol/PeCoffImageEmulator.h>
+#include <Protocol/Sandbox.h>
 #include <Guid/MemoryTypeInformation.h>
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/FirmwareFileSystem3.h>
@@ -198,6 +199,8 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS                    ImageBasePage;
   /// Number of pages
   UINTN                                   NumberOfPages;
+
+  UINTN                                   SandboxID;
   /// Original fixup data
   CHAR8                                   *FixupData;
   /// Tpl of started image
@@ -250,6 +253,7 @@ extern EFI_SECURITY_ARCH_PROTOCOL        *gSecurity;
 extern EFI_SECURITY2_ARCH_PROTOCOL       *gSecurity2;
 extern EFI_BDS_ARCH_PROTOCOL             *gBds;
 extern EFI_SMM_BASE2_PROTOCOL            *gSmmBase2;
+extern EFI_SANDBOX_ARCH_PROTOCOL         *gSandbox;
 
 extern EFI_TPL  gEfiCurrentTpl;
 
@@ -1347,6 +1351,18 @@ CoreLoadImage (
   OUT EFI_HANDLE               *ImageHandle
   );
 
+EFI_STATUS
+EFIAPI
+CoreLoadImageInSandbox (
+  IN BOOLEAN                   BootPolicy,
+  IN EFI_HANDLE                ParentImageHandle,
+  IN EFI_DEVICE_PATH_PROTOCOL  *FilePath,
+  IN VOID                      *SourceBuffer   OPTIONAL,
+  IN UINTN                     SourceSize,
+  OUT EFI_HANDLE               *ImageHandle
+  );
+
+
 /**
   Unloads an image.
 
@@ -1387,6 +1403,14 @@ CoreUnloadImage (
 EFI_STATUS
 EFIAPI
 CoreStartImage (
+  IN EFI_HANDLE  ImageHandle,
+  OUT UINTN      *ExitDataSize,
+  OUT CHAR16     **ExitData  OPTIONAL
+  );
+
+EFI_STATUS
+EFIAPI
+CoreStartImageInSandbox (
   IN EFI_HANDLE  ImageHandle,
   OUT UINTN      *ExitDataSize,
   OUT CHAR16     **ExitData  OPTIONAL

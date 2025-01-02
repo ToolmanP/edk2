@@ -190,6 +190,7 @@
   MdePkg/Library/TdxLib/TdxLib.inf
   MdePkg/Library/MipiSysTLib/MipiSysTLib.inf
   MdePkg/Library/TraceHubDebugSysTLibNull/TraceHubDebugSysTLibNull.inf
+  MdePkg/Library/SandboxSyscallLib/SandboxSyscallLib.inf
 
 [Components.EBC]
   MdePkg/Library/BaseIoLibIntrinsic/BaseIoLibIntrinsic.inf

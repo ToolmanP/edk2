@@ -7,108 +7,99 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
-#include "DxeMain.h"
 #include "Event.h"
+#include "DxeMain.h"
 
 ///
 /// gEfiCurrentTpl - Current Task priority level
 ///
-EFI_TPL  gEfiCurrentTpl = TPL_APPLICATION;
+EFI_TPL gEfiCurrentTpl = TPL_APPLICATION;
 
 ///
 /// gEventQueueLock - Protects the event queues
 ///
-EFI_LOCK  gEventQueueLock = EFI_INITIALIZE_LOCK_VARIABLE (TPL_HIGH_LEVEL);
+EFI_LOCK gEventQueueLock = EFI_INITIALIZE_LOCK_VARIABLE(TPL_HIGH_LEVEL);
 
 ///
 /// gEventQueue - A list of event's to notify for each priority level
 ///
-LIST_ENTRY  gEventQueue[TPL_HIGH_LEVEL + 1];
+LIST_ENTRY gEventQueue[TPL_HIGH_LEVEL + 1];
 
 ///
 /// gEventPending - A bitmask of the EventQueues that are pending
 ///
-UINTN  gEventPending = 0;
+UINTN gEventPending = 0;
 
 ///
 /// gEventSignalQueue - A list of events to signal based on EventGroup type
 ///
-LIST_ENTRY  gEventSignalQueue = INITIALIZE_LIST_HEAD_VARIABLE (gEventSignalQueue);
+LIST_ENTRY gEventSignalQueue = INITIALIZE_LIST_HEAD_VARIABLE(gEventSignalQueue);
 
 ///
 /// Enumerate the valid types
 ///
-UINT32  mEventTable[] = {
-  ///
-  /// 0x80000200       Timer event with a notification function that is
-  /// queue when the event is signaled with SignalEvent()
-  ///
-  EVT_TIMER | EVT_NOTIFY_SIGNAL,
-  ///
-  /// 0x80000000       Timer event without a notification function. It can be
-  /// signaled with SignalEvent() and checked with CheckEvent() or WaitForEvent().
-  ///
-  EVT_TIMER,
-  ///
-  /// 0x00000100       Generic event with a notification function that
-  /// can be waited on with CheckEvent() or WaitForEvent()
-  ///
-  EVT_NOTIFY_WAIT,
-  ///
-  /// 0x00000200       Generic event with a notification function that
-  /// is queue when the event is signaled with SignalEvent()
-  ///
-  EVT_NOTIFY_SIGNAL,
-  ///
-  /// 0x00000201       ExitBootServicesEvent.
-  ///
-  EVT_SIGNAL_EXIT_BOOT_SERVICES,
-  ///
-  /// 0x60000202       SetVirtualAddressMapEvent.
-  ///
-  EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE,
+UINT32 mEventTable[] = {
+    ///
+    /// 0x80000200       Timer event with a notification function that is
+    /// queue when the event is signaled with SignalEvent()
+    ///
+    EVT_TIMER | EVT_NOTIFY_SIGNAL,
+    ///
+    /// 0x80000000       Timer event without a notification function. It can be
+    /// signaled with SignalEvent() and checked with CheckEvent() or
+    /// WaitForEvent().
+    ///
+    EVT_TIMER,
+    ///
+    /// 0x00000100       Generic event with a notification function that
+    /// can be waited on with CheckEvent() or WaitForEvent()
+    ///
+    EVT_NOTIFY_WAIT,
+    ///
+    /// 0x00000200       Generic event with a notification function that
+    /// is queue when the event is signaled with SignalEvent()
+    ///
+    EVT_NOTIFY_SIGNAL,
+    ///
+    /// 0x00000201       ExitBootServicesEvent.
+    ///
+    EVT_SIGNAL_EXIT_BOOT_SERVICES,
+    ///
+    /// 0x60000202       SetVirtualAddressMapEvent.
+    ///
+    EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE,
 
-  ///
-  /// 0x00000000       Generic event without a notification function.
-  /// It can be signaled with SignalEvent() and checked with CheckEvent()
-  /// or WaitForEvent().
-  ///
-  0x00000000,
-  ///
-  /// 0x80000100       Timer event with a notification function that can be
-  /// waited on with CheckEvent() or WaitForEvent()
-  ///
-  EVT_TIMER | EVT_NOTIFY_WAIT,
+    ///
+    /// 0x00000000       Generic event without a notification function.
+    /// It can be signaled with SignalEvent() and checked with CheckEvent()
+    /// or WaitForEvent().
+    ///
+    0x00000000,
+    ///
+    /// 0x80000100       Timer event with a notification function that can be
+    /// waited on with CheckEvent() or WaitForEvent()
+    ///
+    EVT_TIMER | EVT_NOTIFY_WAIT,
 };
 
 ///
 /// gIdleLoopEvent - Event which is signalled when the core is idle
 ///
-EFI_EVENT  gIdleLoopEvent = NULL;
+EFI_EVENT gIdleLoopEvent = NULL;
 
 /**
   Enter critical section by acquiring the lock on gEventQueueLock.
 
 **/
-VOID
-CoreAcquireEventLock (
-  VOID
-  )
-{
-  CoreAcquireLock (&gEventQueueLock);
-}
+VOID CoreAcquireEventLock(VOID) { CoreAcquireLock(&gEventQueueLock); }
 
 /**
   Exit critical section by releasing the lock on gEventQueueLock.
 
 **/
-VOID
-CoreReleaseEventLock (
-  VOID
-  )
-{
-  CoreReleaseLock (&gEventQueueLock);
-}
+VOID CoreReleaseEventLock(VOID) { CoreReleaseLock(&gEventQueueLock); }
+
+STATIC VOID EFIAPI NotifyHook(IN EFI_EVENT Event, IN VOID *Context);
 
 /**
   Initializes "event" support.
@@ -117,26 +108,17 @@ CoreReleaseEventLock (
 
 **/
 EFI_STATUS
-CoreInitializeEventServices (
-  VOID
-  )
-{
-  UINTN  Index;
+CoreInitializeEventServices(VOID) {
+  UINTN Index;
 
   for (Index = 0; Index <= TPL_HIGH_LEVEL; Index++) {
-    InitializeListHead (&gEventQueue[Index]);
+    InitializeListHead(&gEventQueue[Index]);
   }
 
-  CoreInitializeTimer ();
+  CoreInitializeTimer();
 
-  CoreCreateEventEx (
-    EVT_NOTIFY_SIGNAL,
-    TPL_NOTIFY,
-    EfiEventEmptyFunction,
-    NULL,
-    &gIdleLoopEventGuid,
-    &gIdleLoopEvent
-    );
+  CoreCreateEventEx(EVT_NOTIFY_SIGNAL, TPL_NOTIFY, EfiEventEmptyFunction, NULL,
+                    &gIdleLoopEventGuid, &gIdleLoopEvent);
 
   return EFI_SUCCESS;
 }
@@ -148,24 +130,20 @@ CoreInitializeEventServices (
                                  to dispatch
 
 **/
-VOID
-CoreDispatchEventNotifies (
-  IN EFI_TPL  Priority
-  )
-{
-  IEVENT      *Event;
-  LIST_ENTRY  *Head;
+VOID CoreDispatchEventNotifies(IN EFI_TPL Priority) {
+  IEVENT *Event;
+  LIST_ENTRY *Head;
 
-  CoreAcquireEventLock ();
-  ASSERT (gEventQueueLock.OwnerTpl == Priority);
+  CoreAcquireEventLock();
+  ASSERT(gEventQueueLock.OwnerTpl == Priority);
   Head = &gEventQueue[Priority];
 
   //
   // Dispatch all the pending notifications
   //
-  while (!IsListEmpty (Head)) {
-    Event = CR (Head->ForwardLink, IEVENT, NotifyLink, EVENT_SIGNATURE);
-    RemoveEntryList (&Event->NotifyLink);
+  while (!IsListEmpty(Head)) {
+    Event = CR(Head->ForwardLink, IEVENT, NotifyLink, EVENT_SIGNATURE);
+    RemoveEntryList(&Event->NotifyLink);
 
     Event->NotifyLink.ForwardLink = NULL;
 
@@ -177,22 +155,22 @@ CoreDispatchEventNotifies (
       Event->SignalCount = 0;
     }
 
-    CoreReleaseEventLock ();
+    CoreReleaseEventLock();
 
     //
     // Notify this event
     //
-    ASSERT (Event->NotifyFunction != NULL);
-    Event->NotifyFunction (Event, Event->NotifyContext);
+    ASSERT(Event->NotifyFunction != NULL);
+    NotifyHook(Event, Event->NotifyContext);
 
     //
     // Check for next pending event
     //
-    CoreAcquireEventLock ();
+    CoreAcquireEventLock();
   }
 
   gEventPending &= ~(UINTN)(1 << Priority);
-  CoreReleaseEventLock ();
+  CoreReleaseEventLock();
 }
 
 /**
@@ -201,22 +179,18 @@ CoreDispatchEventNotifies (
   @param  Event                  The Event to notify
 
 **/
-VOID
-CoreNotifyEvent (
-  IN  IEVENT  *Event
-  )
-{
+VOID CoreNotifyEvent(IN IEVENT *Event) {
   //
   // Event database must be locked
   //
-  ASSERT_LOCKED (&gEventQueueLock);
+  ASSERT_LOCKED(&gEventQueueLock);
 
   //
   // If the event is queued somewhere, remove it
   //
 
   if (Event->NotifyLink.ForwardLink != NULL) {
-    RemoveEntryList (&Event->NotifyLink);
+    RemoveEntryList(&Event->NotifyLink);
     Event->NotifyLink.ForwardLink = NULL;
   }
 
@@ -224,7 +198,7 @@ CoreNotifyEvent (
   // Queue the event to the pending notification list
   //
 
-  InsertTailList (&gEventQueue[Event->NotifyTpl], &Event->NotifyLink);
+  InsertTailList(&gEventQueue[Event->NotifyTpl], &Event->NotifyLink);
   gEventPending |= (UINTN)(1 << Event->NotifyTpl);
 }
 
@@ -234,26 +208,22 @@ CoreNotifyEvent (
   @param  EventGroup             The list to signal
 
 **/
-VOID
-CoreNotifySignalList (
-  IN EFI_GUID  *EventGroup
-  )
-{
-  LIST_ENTRY  *Link;
-  LIST_ENTRY  *Head;
-  IEVENT      *Event;
+VOID CoreNotifySignalList(IN EFI_GUID *EventGroup) {
+  LIST_ENTRY *Link;
+  LIST_ENTRY *Head;
+  IEVENT *Event;
 
-  CoreAcquireEventLock ();
+  CoreAcquireEventLock();
 
   Head = &gEventSignalQueue;
   for (Link = Head->ForwardLink; Link != Head; Link = Link->ForwardLink) {
-    Event = CR (Link, IEVENT, SignalLink, EVENT_SIGNATURE);
-    if (CompareGuid (&Event->EventGroup, EventGroup)) {
-      CoreNotifyEvent (Event);
+    Event = CR(Link, IEVENT, SignalLink, EVENT_SIGNATURE);
+    if (CompareGuid(&Event->EventGroup, EventGroup)) {
+      CoreNotifyEvent(Event);
     }
   }
 
-  CoreReleaseEventLock ();
+  CoreReleaseEventLock();
 }
 
 /**
@@ -276,15 +246,32 @@ CoreNotifySignalList (
 **/
 EFI_STATUS
 EFIAPI
-CoreCreateEvent (
-  IN UINT32            Type,
-  IN EFI_TPL           NotifyTpl,
-  IN EFI_EVENT_NOTIFY  NotifyFunction  OPTIONAL,
-  IN VOID              *NotifyContext  OPTIONAL,
-  OUT EFI_EVENT        *Event
-  )
-{
-  return CoreCreateEventEx (Type, NotifyTpl, NotifyFunction, NotifyContext, NULL, Event);
+CoreCreateEvent(IN UINT32 Type, IN EFI_TPL NotifyTpl,
+                IN EFI_EVENT_NOTIFY NotifyFunction OPTIONAL,
+                IN VOID *NotifyContext OPTIONAL, OUT EFI_EVENT *Event) {
+  return CoreCreateEventEx(Type, NotifyTpl, NotifyFunction, NotifyContext, NULL,
+                           Event);
+}
+
+STATIC VOID EFIAPI NotifyHook(IN EFI_EVENT Event, IN VOID *Context) {
+  IEVENT *IEvent;
+  UINTN SandboxID;
+  UINT32 Type;
+
+  IEvent = Event;
+  Type = IEvent->Type;
+  SandboxID = IEvent->SandboxID;
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
+
+  if(Type & EVT_RUNTIME) {
+    IEvent->RuntimeData.NotifyFunction(Event, Context);
+  } else {
+    IEvent->NotifyFunction(Event,Context);
+  }
+
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
 }
 
 /**
@@ -307,30 +294,27 @@ CoreCreateEvent (
   @retval EFI_OUT_OF_RESOURCES   The event could not be allocated
 
 **/
+
+
 EFI_STATUS
 EFIAPI
-CoreCreateEventEx (
-  IN UINT32            Type,
-  IN EFI_TPL           NotifyTpl,
-  IN EFI_EVENT_NOTIFY  NotifyFunction  OPTIONAL,
-  IN CONST VOID        *NotifyContext  OPTIONAL,
-  IN CONST EFI_GUID    *EventGroup     OPTIONAL,
-  OUT EFI_EVENT        *Event
-  )
-{
+CoreCreateEventEx(IN UINT32 Type, IN EFI_TPL NotifyTpl,
+                  IN EFI_EVENT_NOTIFY NotifyFunction OPTIONAL,
+                  IN CONST VOID *NotifyContext OPTIONAL,
+                  IN CONST EFI_GUID *EventGroup OPTIONAL,
+                  OUT EFI_EVENT *Event) {
   //
   // If it's a notify type of event, check for invalid NotifyTpl
   //
   if ((Type & (EVT_NOTIFY_WAIT | EVT_NOTIFY_SIGNAL)) != 0) {
-    if ((NotifyTpl != TPL_APPLICATION) &&
-        (NotifyTpl != TPL_CALLBACK) &&
-        (NotifyTpl != TPL_NOTIFY))
-    {
+    if ((NotifyTpl != TPL_APPLICATION) && (NotifyTpl != TPL_CALLBACK) &&
+        (NotifyTpl != TPL_NOTIFY)) {
       return EFI_INVALID_PARAMETER;
     }
   }
 
-  return CoreCreateEventInternal (Type, NotifyTpl, NotifyFunction, NotifyContext, EventGroup, Event);
+  return CoreCreateEventInternal(Type, NotifyTpl, NotifyFunction, NotifyContext,
+                                 EventGroup, Event);
 }
 
 /**
@@ -355,18 +339,15 @@ CoreCreateEventEx (
 **/
 EFI_STATUS
 EFIAPI
-CoreCreateEventInternal (
-  IN UINT32            Type,
-  IN EFI_TPL           NotifyTpl,
-  IN EFI_EVENT_NOTIFY  NotifyFunction  OPTIONAL,
-  IN CONST VOID        *NotifyContext  OPTIONAL,
-  IN CONST EFI_GUID    *EventGroup     OPTIONAL,
-  OUT EFI_EVENT        *Event
-  )
-{
-  EFI_STATUS  Status;
-  IEVENT      *IEvent;
-  INTN        Index;
+CoreCreateEventInternal(IN UINT32 Type, IN EFI_TPL NotifyTpl,
+                        IN EFI_EVENT_NOTIFY NotifyFunction OPTIONAL,
+                        IN CONST VOID *NotifyContext OPTIONAL,
+                        IN CONST EFI_GUID *EventGroup OPTIONAL,
+                        OUT EFI_EVENT *Event) {
+  EFI_STATUS Status;
+  UINTN SandboxID;
+  IEVENT *IEvent;
+  INTN Index;
 
   if (Event == NULL) {
     return EFI_INVALID_PARAMETER;
@@ -376,14 +357,14 @@ CoreCreateEventInternal (
   // Check to make sure no reserved flags are set
   //
   Status = EFI_INVALID_PARAMETER;
-  for (Index = 0; Index < (sizeof (mEventTable) / sizeof (UINT32)); Index++) {
+  for (Index = 0; Index < (sizeof(mEventTable) / sizeof(UINT32)); Index++) {
     if (Type == mEventTable[Index]) {
       Status = EFI_SUCCESS;
       break;
     }
   }
 
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR(Status)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -392,16 +373,17 @@ CoreCreateEventInternal (
   //
   if (EventGroup != NULL) {
     //
-    // For event group, type EVT_SIGNAL_EXIT_BOOT_SERVICES and EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE
-    // are not valid
+    // For event group, type EVT_SIGNAL_EXIT_BOOT_SERVICES and
+    // EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE are not valid
     //
-    if ((Type == EVT_SIGNAL_EXIT_BOOT_SERVICES) || (Type == EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE)) {
+    if ((Type == EVT_SIGNAL_EXIT_BOOT_SERVICES) ||
+        (Type == EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE)) {
       return EFI_INVALID_PARAMETER;
     }
 
-    if (CompareGuid (EventGroup, &gEfiEventExitBootServicesGuid)) {
+    if (CompareGuid(EventGroup, &gEfiEventExitBootServicesGuid)) {
       Type = EVT_SIGNAL_EXIT_BOOT_SERVICES;
-    } else if (CompareGuid (EventGroup, &gEfiEventVirtualAddressChangeGuid)) {
+    } else if (CompareGuid(EventGroup, &gEfiEventVirtualAddressChangeGuid)) {
       Type = EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE;
     }
   } else {
@@ -422,28 +404,26 @@ CoreCreateEventInternal (
     //
     // Check for an invalid NotifyFunction or NotifyTpl
     //
-    if ((NotifyFunction == NULL) ||
-        (NotifyTpl <= TPL_APPLICATION) ||
-        (NotifyTpl >= TPL_HIGH_LEVEL))
-    {
+    if ((NotifyFunction == NULL) || (NotifyTpl <= TPL_APPLICATION) ||
+        (NotifyTpl >= TPL_HIGH_LEVEL)) {
       return EFI_INVALID_PARAMETER;
     }
   } else {
     //
     // No notification needed, zero ignored values
     //
-    NotifyTpl      = 0;
+    NotifyTpl = 0;
     NotifyFunction = NULL;
-    NotifyContext  = NULL;
+    NotifyContext = NULL;
   }
 
   //
   // Allocate and initialize a new event structure.
   //
   if ((Type & EVT_RUNTIME) != 0) {
-    IEvent = AllocateRuntimeZeroPool (sizeof (IEVENT));
+    IEvent = AllocateRuntimeZeroPool(sizeof(IEVENT));
   } else {
-    IEvent = AllocateZeroPool (sizeof (IEVENT));
+    IEvent = AllocateZeroPool(sizeof(IEVENT));
   }
 
   if (IEvent == NULL) {
@@ -451,13 +431,18 @@ CoreCreateEventInternal (
   }
 
   IEvent->Signature = EVENT_SIGNATURE;
-  IEvent->Type      = Type;
+  IEvent->Type = Type;
+  SandboxID = 0;
 
-  IEvent->NotifyTpl      = NotifyTpl;
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->GetCurrentSandboxID(gSandbox, &SandboxID));
+
+  IEvent->SandboxID = SandboxID;
+  IEvent->NotifyTpl = NotifyTpl;
   IEvent->NotifyFunction = NotifyFunction;
-  IEvent->NotifyContext  = (VOID *)NotifyContext;
+  IEvent->NotifyContext = (VOID *)NotifyContext;
   if (EventGroup != NULL) {
-    CopyGuid (&IEvent->EventGroup, EventGroup);
+    CopyGuid(&IEvent->EventGroup, EventGroup);
     IEvent->ExFlag |= EVT_EXFLAG_EVENT_GROUP;
   }
 
@@ -467,10 +452,10 @@ CoreCreateEventInternal (
     //
     // Keep a list of all RT events so we can tell the RT AP.
     //
-    IEvent->RuntimeData.Type           = Type;
-    IEvent->RuntimeData.NotifyTpl      = NotifyTpl;
+    IEvent->RuntimeData.Type = Type;
+    IEvent->RuntimeData.NotifyTpl = NotifyTpl;
     IEvent->RuntimeData.NotifyFunction = NotifyFunction;
-    IEvent->RuntimeData.NotifyContext  = (VOID *)NotifyContext;
+    IEvent->RuntimeData.NotifyContext = (VOID *)NotifyContext;
     //
     // Work around the bug in the Platform Init specification (v1.7), reported
     // as Mantis#2017: "EFI_RUNTIME_EVENT_ENTRY.Event" should have type
@@ -480,19 +465,19 @@ CoreCreateEventInternal (
     // explicit cast here.
     //
     IEvent->RuntimeData.Event = (EFI_EVENT *)IEvent;
-    InsertTailList (&gRuntime->EventHead, &IEvent->RuntimeData.Link);
+    InsertTailList(&gRuntime->EventHead, &IEvent->RuntimeData.Link);
   }
 
-  CoreAcquireEventLock ();
+  CoreAcquireEventLock();
 
   if ((Type & EVT_NOTIFY_SIGNAL) != 0x00000000) {
     //
     // The Event's NotifyFunction must be queued whenever the event is signaled
     //
-    InsertHeadList (&gEventSignalQueue, &IEvent->SignalLink);
+    InsertHeadList(&gEventSignalQueue, &IEvent->SignalLink);
   }
 
-  CoreReleaseEventLock ();
+  CoreReleaseEventLock();
 
   //
   // Done
@@ -511,11 +496,8 @@ CoreCreateEventInternal (
 **/
 EFI_STATUS
 EFIAPI
-CoreSignalEvent (
-  IN EFI_EVENT  UserEvent
-  )
-{
-  IEVENT  *Event;
+CoreSignalEvent(IN EFI_EVENT UserEvent) {
+  IEVENT *Event;
 
   Event = UserEvent;
 
@@ -527,7 +509,7 @@ CoreSignalEvent (
     return EFI_INVALID_PARAMETER;
   }
 
-  CoreAcquireEventLock ();
+  CoreAcquireEventLock();
 
   //
   // If the event is not already signalled, do so
@@ -545,16 +527,16 @@ CoreSignalEvent (
         // The CreateEventEx() style requires all members of the Event Group
         //  to be signaled.
         //
-        CoreReleaseEventLock ();
-        CoreNotifySignalList (&Event->EventGroup);
-        CoreAcquireEventLock ();
+        CoreReleaseEventLock();
+        CoreNotifySignalList(&Event->EventGroup);
+        CoreAcquireEventLock();
       } else {
-        CoreNotifyEvent (Event);
+        CoreNotifyEvent(Event);
       }
     }
   }
 
-  CoreReleaseEventLock ();
+  CoreReleaseEventLock();
   return EFI_SUCCESS;
 }
 
@@ -570,12 +552,9 @@ CoreSignalEvent (
 **/
 EFI_STATUS
 EFIAPI
-CoreCheckEvent (
-  IN EFI_EVENT  UserEvent
-  )
-{
-  IEVENT      *Event;
-  EFI_STATUS  Status;
+CoreCheckEvent(IN EFI_EVENT UserEvent) {
+  IEVENT *Event;
+  EFI_STATUS Status;
 
   Event = UserEvent;
 
@@ -597,12 +576,12 @@ CoreCheckEvent (
     //
     // Queue the wait notify function
     //
-    CoreAcquireEventLock ();
+    CoreAcquireEventLock();
     if (Event->SignalCount == 0) {
-      CoreNotifyEvent (Event);
+      CoreNotifyEvent(Event);
     }
 
-    CoreReleaseEventLock ();
+    CoreReleaseEventLock();
   }
 
   //
@@ -610,14 +589,14 @@ CoreCheckEvent (
   //
 
   if (Event->SignalCount != 0) {
-    CoreAcquireEventLock ();
+    CoreAcquireEventLock();
 
     if (Event->SignalCount != 0) {
       Event->SignalCount = 0;
-      Status             = EFI_SUCCESS;
+      Status = EFI_SUCCESS;
     }
 
-    CoreReleaseEventLock ();
+    CoreReleaseEventLock();
   }
 
   return Status;
@@ -639,14 +618,10 @@ CoreCheckEvent (
 **/
 EFI_STATUS
 EFIAPI
-CoreWaitForEvent (
-  IN UINTN      NumberOfEvents,
-  IN EFI_EVENT  *UserEvents,
-  OUT UINTN     *UserIndex
-  )
-{
-  EFI_STATUS  Status;
-  UINTN       Index;
+CoreWaitForEvent(IN UINTN NumberOfEvents, IN EFI_EVENT *UserEvents,
+                 OUT UINTN *UserIndex) {
+  EFI_STATUS Status;
+  UINTN Index;
 
   //
   // Can only WaitForEvent at TPL_APPLICATION
@@ -663,9 +638,9 @@ CoreWaitForEvent (
     return EFI_INVALID_PARAMETER;
   }
 
-  for ( ; ;) {
+  for (;;) {
     for (Index = 0; Index < NumberOfEvents; Index++) {
-      Status = CoreCheckEvent (UserEvents[Index]);
+      Status = CoreCheckEvent(UserEvents[Index]);
 
       //
       // provide index of event that caused problem
@@ -682,7 +657,7 @@ CoreWaitForEvent (
     //
     // Signal the Idle event
     //
-    CoreSignalEvent (gIdleLoopEvent);
+    CoreSignalEvent(gIdleLoopEvent);
   }
 }
 
@@ -697,12 +672,9 @@ CoreWaitForEvent (
 **/
 EFI_STATUS
 EFIAPI
-CoreCloseEvent (
-  IN EFI_EVENT  UserEvent
-  )
-{
-  EFI_STATUS  Status;
-  IEVENT      *Event;
+CoreCloseEvent(IN EFI_EVENT UserEvent) {
+  EFI_STATUS Status;
+  IEVENT *Event;
 
   Event = UserEvent;
 
@@ -718,34 +690,35 @@ CoreCloseEvent (
   // If it's a timer event, make sure it's not pending
   //
   if ((Event->Type & EVT_TIMER) != 0) {
-    CoreSetTimer (Event, TimerCancel, 0);
+    CoreSetTimer(Event, TimerCancel, 0);
   }
 
-  CoreAcquireEventLock ();
+  CoreAcquireEventLock();
 
   //
   // If the event is queued somewhere, remove it
   //
 
   if (Event->RuntimeData.Link.ForwardLink != NULL) {
-    RemoveEntryList (&Event->RuntimeData.Link);
+    RemoveEntryList(&Event->RuntimeData.Link);
   }
 
   if (Event->NotifyLink.ForwardLink != NULL) {
-    RemoveEntryList (&Event->NotifyLink);
+    RemoveEntryList(&Event->NotifyLink);
   }
 
   if (Event->SignalLink.ForwardLink != NULL) {
-    RemoveEntryList (&Event->SignalLink);
+    RemoveEntryList(&Event->SignalLink);
   }
 
-  CoreReleaseEventLock ();
+  CoreReleaseEventLock();
 
   //
-  // If the event is registered on a protocol notify, then remove it from the protocol database
+  // If the event is registered on a protocol notify, then remove it from the
+  // protocol database
   //
   if ((Event->ExFlag & EVT_EXFLAG_EVENT_PROTOCOL_NOTIFICATION) != 0) {
-    CoreUnregisterProtocolNotify (Event);
+    CoreUnregisterProtocolNotify(Event);
   }
 
   //
@@ -753,8 +726,8 @@ CoreCloseEvent (
   // clear the Signature of Event before free pool.
   //
   Event->Signature = 0;
-  Status           = CoreFreePool (Event);
-  ASSERT_EFI_ERROR (Status);
+  Status = CoreFreePool(Event);
+  ASSERT_EFI_ERROR(Status);
 
   return Status;
 }

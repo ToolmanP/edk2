@@ -307,6 +307,8 @@
   #
   StackCheckFailureHookLib|Include/Library/StackCheckFailureHookLib.h
 
+  SandboxSyscallLib|Include/Library/SandboxSyscallLib.h
+
 [LibraryClasses.IA32, LibraryClasses.X64, LibraryClasses.AARCH64]
   ##  @libraryclass  Provides services to generate random number.
   #
@@ -1988,6 +1990,8 @@
   #
   ## Include/Protocol/ShellDynamicCommand.h
   gEfiShellDynamicCommandProtocolGuid  = { 0x3c7200e9, 0x005f, 0x4ea4, {0x87, 0xde, 0xa3, 0xdf, 0xac, 0x8a, 0x27, 0xc3 }}
+
+  gEfiSandboxArchProtocolGuid = { 0x7a31b274, 0x0e30, 0x4567, {0x9b, 0xb7, 0x04, 0x15, 0xf8, 0x28, 0xf9, 0xa9 }}
 
 #
 # [Error.gEfiMdePkgTokenSpaceGuid]
