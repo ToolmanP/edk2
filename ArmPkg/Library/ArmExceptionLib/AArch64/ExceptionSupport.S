@@ -116,22 +116,7 @@ ASM_PFX(ExceptionHandlersStart):
 VECTOR_BASE(ExceptionHandlersStart)
 #endif
 
-  .macro  ExceptionEntry, val, sp=SPx
-  //
-  // Our backtrace and register dump code is written in C and so it requires
-  // a stack. This makes it difficult to produce meaningful diagnostics when
-  // the stack pointer has been corrupted. So in such cases (i.e., when taking
-  // synchronous exceptions), this macro is expanded with \sp set to SP0, in
-  // which case we switch to the SP_EL0 stack pointer, which has been
-  // initialized to point to a buffer that has been set aside for this purpose.
-  //
-  // Since 'sp' may no longer refer to the stack frame that was active when
-  // the exception was taken, we may have to switch back and forth between
-  // SP_EL0 and SP_ELx to record the correct value for SP in the context struct.
-  //
-  .ifnc   \sp, SPx
-  msr     SPsel, xzr
-  .endif
+  .macro  ExceptionEntry, val
 
   // Move the stackpointer so we can reach our structure with the str instruction.
   sub sp, sp, #(FP_CONTEXT_SIZE + SYS_CONTEXT_SIZE)
@@ -154,13 +139,8 @@ VECTOR_BASE(ExceptionHandlersStart)
   stp      x28, x29, [sp, #0xe0]
   add      x28, sp, #(GP_CONTEXT_SIZE + FP_CONTEXT_SIZE + SYS_CONTEXT_SIZE)
 
-  .ifnc    \sp, SPx
-  msr      SPsel, #1
-  mov      x7, sp
-  msr      SPsel, xzr
-  .else
-  mov      x7, x28
-  .endif
+  // TODO: store the stack pointer for the current EL
+  mrs      x7, sp_el0
 
   stp      x30,  x7, [sp, #0xf0]
 
@@ -201,7 +181,7 @@ ASM_PFX(SErrorSP0):
 //
 VECTOR_ENTRY(ExceptionHandlersStart, ARM_VECTOR_CUR_SPX_SYNC)
 ASM_PFX(SynchronousExceptionSPx):
-  ExceptionEntry  EXCEPT_AARCH64_SYNCHRONOUS_EXCEPTIONS, SP0
+  ExceptionEntry  EXCEPT_AARCH64_SYNCHRONOUS_EXCEPTIONS
 
 VECTOR_ENTRY(ExceptionHandlersStart, ARM_VECTOR_CUR_SPX_IRQ)
 ASM_PFX(IrqSPx):
@@ -368,7 +348,9 @@ ASM_PFX(CommonExceptionEntry):
 4:
 
   // pop remaining GP regs and return from exception.
-  ldr      x30, [sp, #0xf0 - 0xe0]
+  // assume always return to EL0
+  ldp      x30, x28, [sp, #0xf0 - 0xe0]
+  msr      sp_el0, x28
   ldp      x28, x29, [sp], #GP_CONTEXT_SIZE - 0xe0
 
   // Adjust SP to be where we started from when we came into the handler.

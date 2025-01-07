@@ -44,8 +44,6 @@ UefiBootServicesTableLibConstructor (
   gImageHandle = ImageHandle;
   ASSERT (gImageHandle != NULL);
 
-  DebugPrint(DEBUG_INFO, "UefiBootServicesTableLibConstructor, ImageHandle: 0x%lx, SystemTable: 0x%lx\n", ImageHandle, SystemTable);
-
 #if defined(__x86_64__)
   #define IS_VIRT_ADDR(addr) ((UINTN)addr >> 40 == 0x7f)
 #elif defined(__aarch64__)
