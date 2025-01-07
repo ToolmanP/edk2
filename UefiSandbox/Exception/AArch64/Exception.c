@@ -177,8 +177,6 @@ STATIC VOID HandleSyscall(IN EFI_SYSTEM_CONTEXT SystemContext) {
   UINT64 SyscallNumber;
   UINT64 ReturnValue;
 
-  SBDebug("Handle Syscall %d\n", SystemContext.SystemContextAArch64->X8);
-
   SyscallNumber = SystemContext.SystemContextAArch64->X8;
   if (SyscallNumber >= NR_SYSCALL) {
     SBError("Invalid syscall number: %d\n", SyscallNumber);

@@ -18,7 +18,7 @@
 
 #define CACHE_LINE_LENGTH 64
 
-inline VOID DcacheCleanAndInvaliateArea(UINT64 start, UINT64 end)
+inline VOID DcacheCleanAndInvalidateArea(UINT64 start, UINT64 end)
 {
 	while (start < end) {
 		asm volatile("dc civac, %0" : : "r"(start) : "memory");

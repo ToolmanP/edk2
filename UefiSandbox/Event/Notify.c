@@ -53,7 +53,7 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
     Params.SPSR = SPSR_EL1_USER;
     Params.ELR = (UINT64)IEvent->NotifyFunction;
 
-    DcacheCleanAndInvaliateArea((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
+    DcacheCleanAndInvalidateArea((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
     FlushIcacheAll();
 #endif
     CallSandboxFunc(&Params);
