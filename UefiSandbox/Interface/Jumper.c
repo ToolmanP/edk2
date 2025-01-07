@@ -110,6 +110,8 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
+      
+    FlushIcacheAll();
 #endif
     ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
     CallSandboxFunc(&Context.EntryParams);
