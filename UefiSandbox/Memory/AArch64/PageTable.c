@@ -41,6 +41,15 @@ inline VOID FlushIcacheAll(VOID)
     asm volatile("isb");
 }
 
+inline VOID FlushIcacheRange(UINT64 start, UINT64 end)
+{
+	while (start < end) {
+		asm volatile("ic ivau, %0" : : "r"(start) : "memory");
+		start += CACHE_LINE_LENGTH;
+	}
+}
+
+
 void SetPageTable(void *pgtbl)
 {
     ArmSetTTBR0(pgtbl);

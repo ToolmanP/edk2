@@ -54,7 +54,7 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
     Params.ELR = (UINT64)IEvent->NotifyFunction;
 
     DcacheCleanAndInvalidateArea((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
-    FlushIcacheAll();
+    FlushIcacheRange((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
 #endif
     CallSandboxFunc(&Params);
     ASSERT(0);

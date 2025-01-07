@@ -84,6 +84,7 @@ EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr);
 
 /* Cache Operation */
 VOID FlushIcacheAll(VOID);
+VOID FlushIcacheRange(UINT64 Start, UINT64 End);
 VOID DcacheCleanAndInvalidateArea(UINT64 Start, UINT64 End);
 
 #endif
