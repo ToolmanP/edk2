@@ -111,6 +111,7 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
       
+    DcacheCleanAndInvaliateArea((UINT64)Context.ReturnTrampoline, (UINT64)Context.ReturnTrampoline + 256);
     FlushIcacheAll();
 #endif
     ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
