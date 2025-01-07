@@ -44,6 +44,7 @@ inline VOID FlushIcacheAll(VOID)
 void SetPageTable(void *pgtbl)
 {
     ArmSetTTBR0(pgtbl);
+    ArmInvalidateTlb();
 }
 
 EFI_PHYSICAL_ADDRESS GetPageTable(void)
@@ -346,6 +347,56 @@ UpdateRegionMappingRecursive(
     return EFI_SUCCESS;
 }
 
+STATIC
+VOID
+DumpPageTableRecursive(UINT64 *PageTable, UINT64 VirtualStart, UINTN Level)
+{
+    UINT64 RegionStart;
+    UINT64 RegionEnd;
+    UINTN BlockShift;
+    UINT64 BlockMask;
+    UINT64 BlockEnd;
+    UINT64 *Entry;
+    VOID *TranslationTable;
+
+    RegionStart = VirtualStart;
+    RegionEnd = VirtualStart + TT_BLOCK_ENTRY_SIZE_AT_LEVEL(Level) * TT_ENTRY_COUNT;
+    BlockShift = (Level + 1) * BITS_PER_LEVEL + MIN_T0SZ;
+    BlockMask = MAX_UINT64 >> BlockShift;
+
+    for (; RegionStart < RegionEnd; RegionStart = BlockEnd) {
+        BlockEnd = MIN(RegionEnd, (RegionStart | BlockMask) + 1);
+        Entry = &PageTable[(RegionStart >> (64 - BlockShift)) &
+                           (TT_ENTRY_COUNT - 1)];
+
+        if ((Level == 0) || IsTableEntry(*Entry, Level)) {
+            ASSERT(Level < 3);
+
+            if (!IsTableEntry(*Entry, Level)) {
+                if (IsBlockEntry(*Entry, Level)) {
+                    DebugPrint(DEBUG_INFO, "0x%lx - 0x%lx: %lx\n", RegionStart, BlockEnd, *Entry);
+                    continue;
+                }
+            } else {
+                TranslationTable = (VOID *)(UINTN)(*Entry & TT_ADDRESS_MASK_BLOCK_ENTRY);
+
+                /*
+                 * Recurse to the next level
+                 */
+                DumpPageTableRecursive(
+                    TranslationTable,
+                    RegionStart, 
+                    Level + 1
+                    );
+            }
+        } else {
+            if (IsBlockEntry(*Entry, Level)) {
+                DebugPrint(DEBUG_INFO, "0x%lx - 0x%lx: %lx\n", RegionStart, BlockEnd, *Entry);
+            }
+        }
+    }
+}
+
 EFI_STATUS
 MapRangeInPageTable(
     IN OUT UINT64 *TranslationTableBasePtr,
@@ -363,6 +414,8 @@ MapRangeInPageTable(
     ASSERT(((VirtualStart | PhysicalStart | VirtualEnd) & EFI_PAGE_MASK) == 0);
 
     T0SZ = ArmGetTCR() & TCR_T0SZ_MASK;
+
+    SBDebug("MapRangeInPageTable: 0x%lx - 0x%lx, Physical: 0x%lx\n", VirtualStart, VirtualEnd, PhysicalStart);
 
     Status = UpdateRegionMappingRecursive(
         PhysicalStart, VirtualStart, VirtualEnd, VmrPropToPageAttr(Flags, KernelVMR),
@@ -449,15 +502,48 @@ EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable, IN OUT UINT64 *DstPa
 }
 
 VOID PrintPageTable(UINT64 PageTable)
- {
-    __unimplemented("AArch64 PrintPageTable");
- }
+{
+  DumpPageTableRecursive(
+    (UINT64 *)PageTable,
+    0,
+    0
+  );
+
+  DEBUG((DEBUG_INFO, "==== Dump Completed ====\n"));
+}
 
 EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr)
 {
+#if defined(__raspi4__)
+  EFI_STATUS Status;
+
+  // System RAM < 1GB
+  Status = MapRangeInPageTable(CorePageTablePtr, 0x400000, PHYS_TO_VIRT(0x400000), PHYS_TO_VIRT(0x3B400000), VMR_READ | VMR_WRITE | VMR_EXEC,
+                        TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in core page table\n");
+  }
+
+  // Extended System RAM < 4GB
+  Status = MapRangeInPageTable(CorePageTablePtr, 0x40000000, PHYS_TO_VIRT(0x40000000), PHYS_TO_VIRT(0xFC000000), VMR_READ | VMR_WRITE | VMR_EXEC,
+                       TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in core page table\n");
+  }
+
+  // Extended System RAM >= 4GB
+  Status = MapRangeInPageTable(CorePageTablePtr, 0x100000000, PHYS_TO_VIRT(0x100000000), PHYS_TO_VIRT(0x200000000), VMR_READ | VMR_WRITE | VMR_EXEC,
+                       TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in core page table\n");
+  }
+  
+  return Status;
+#else
   return MapRangeInPageTable(
       CorePageTablePtr, KERNEL_SYSTEM_DRAM_BASE,
       PHYS_TO_VIRT(KERNEL_SYSTEM_DRAM_BASE),
       PHYS_TO_VIRT(KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE),
       VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
+#endif
 }

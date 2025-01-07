@@ -10,6 +10,7 @@
 #include <Uefi.h>
 
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/SandboxSyscallLib.h>
 #include <Library/DebugLib.h>
 
 EFI_HANDLE         gImageHandle = NULL;
@@ -42,6 +43,21 @@ UefiBootServicesTableLibConstructor (
   //
   gImageHandle = ImageHandle;
   ASSERT (gImageHandle != NULL);
+
+  DebugPrint(DEBUG_INFO, "UefiBootServicesTableLibConstructor, ImageHandle: 0x%lx, SystemTable: 0x%lx\n", ImageHandle, SystemTable);
+
+#if defined(__x86_64__)
+  #define IS_VIRT_ADDR(addr) ((UINTN)addr >> 40 == 0x7f)
+#elif defined(__aarch64__)
+
+#define IS_VIRT_ADDR(Virt) (((EFI_VIRTUAL_ADDRESS)Virt >> 36) == 0xf)
+// #define IS_VIRT_ADDR(Virt) (((EFI_VIRTUAL_ADDRESS)Virt >> 40) == 0xff)
+
+#endif
+
+  if(IS_VIRT_ADDR(SystemTable)) {
+    SetSandboxSystemTable(SystemTable);
+  }
 
   //
   // Cache pointer to the EFI System Table

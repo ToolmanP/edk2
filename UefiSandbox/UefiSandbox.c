@@ -1,3 +1,4 @@
+#include "AArch64.h"
 #include "BinaryGen/BinaryGen.h"
 #include "Exception.h"
 #include "Interface/Registry.h"
@@ -117,6 +118,71 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
     goto free_sandbox;
   }
 
+#if defined(__raspi4__)
+  // FD
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x0, 0x0, 0x3C0000, VMR_READ | VMR_WRITE | VMR_EXEC,
+                        TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // FD Variables
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x3C0000, 0x3C0000, 0x3E0000, VMR_READ | VMR_WRITE,
+                        FALSE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // Flattened Device Tree
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x3E0000, 0x3E0000, 0x3F0000, VMR_READ | VMR_WRITE,
+                        FALSE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // System RAM < 1GB
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x400000, 0x400000, 0x3B400000, VMR_READ | VMR_WRITE | VMR_EXEC,
+                        TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // GPU Reserved
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x3B400000, 0x3B400000, 0x40000000, VMR_READ | VMR_WRITE | VMR_DEVICE,
+                       FALSE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // SoC Reserved
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0xFC000000, 0xFC000000, 0x100000000, VMR_READ | VMR_WRITE | VMR_DEVICE,
+                       FALSE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // Extended System RAM < 4GB
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x40000000, 0x40000000, 0xFC000000, VMR_READ | VMR_WRITE | VMR_EXEC,
+                       TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+
+  // Extended System RAM >= 4GB
+  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x100000000, 0x100000000, 0x200000000, VMR_READ | VMR_WRITE | VMR_EXEC,
+                       TRUE, FALSE);
+  if (EFI_ERROR(Status)) {
+    SBError("Fail to map range in user page table\n");
+    goto free_sandbox;
+  }
+#else
   /* TODO: can we map FV region directly? */
   // FIXME: shoule be readonly?
   /*
@@ -144,6 +210,7 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
       KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE,
       VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
   ASSERT(!EFI_ERROR(Status));
+#endif
 #endif
 
   Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(Sandbox->Context.StackBase),
@@ -258,11 +325,8 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle, IN UINTN San
     Context.LR = PHYS_TO_VIRT(ReturnTrampoline); // TODO: what now
 
     FlushIcacheAll();
-
-    /* TODO: shrink the range */
-    DcacheCleanAndInvaliateArea(KERNEL_SYSTEM_DRAM_BASE,
-                                KERNEL_SYSTEM_DRAM_BASE +
-                                    KERNEL_SYSTEM_DRAM_SIZE);
+ 
+    SBDebug("Starting Sandbox %d, PageTable: 0x%lx, ImageHandle: 0x%lx, SystemTable: 0x%lx\n", Sandbox->SandboxID, (UINT64)Sandbox->TranslationTable, Context.X0, Context.X1);
 
     ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
 

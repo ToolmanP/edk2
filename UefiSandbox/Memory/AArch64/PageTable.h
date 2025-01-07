@@ -3,9 +3,13 @@
 
 #include "AArch64Mmu.h"
 #include "Uefi/UefiBaseType.h"
+#include "UefiSandbox.h"
 
-
+#if defined(__raspi4__)
+#define USER_BASE (UINT64)0xf000000000
+#else
 #define USER_BASE (UINT64)0xff0000000000
+#endif
 
 #define KERNEL_SYSTEM_DRAM_BASE (UINT64)0x40000000
 #define KERNEL_SYSTEM_DRAM_SIZE (UINT64)0x100000000
@@ -19,7 +23,11 @@
 #define PTR_PHYS_TO_VIRT(Ptr)                                                  \
   ((VOID *)(PHYS_TO_VIRT((EFI_PHYSICAL_ADDRESS)Ptr)))
 
+#if defined(__raspi4__)
+#define IS_VIRT_ADDR(Virt) (((EFI_VIRTUAL_ADDRESS)Virt >> 36) == 0xf)
+#else
 #define IS_VIRT_ADDR(Virt) (((EFI_VIRTUAL_ADDRESS)Virt >> 40) == 0xff)
+#endif
 #define IS_PHYS_ADDR(Phys) (!(IS_VIRT_ADDR(Phys)))
 
 #define INNER_SHAREABLE (0x3)

@@ -385,8 +385,11 @@ CoreTrust (
 
 // TODO: Check if a driver should be sandboxed before CoreLoadImage
 const EFI_GUID SandboxDriverGuids[] = {
-}
-;
+  /*DiskIoDxe*/
+  {
+      0x6B38F7B4, 0xAD98, 0x40E9, { 0x90, 0x93, 0xAC, 0xA2, 0xB5, 0xA2, 0x53, 0xC4 }
+  },
+};
 
 static BOOLEAN IsDriverSandboxed(EFI_GUID *DriverName) {
   UINTN Index;

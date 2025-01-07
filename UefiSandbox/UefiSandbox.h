@@ -8,6 +8,8 @@
 #include "Protocol/Sandbox.h"
 #include "Uefi/UefiBaseType.h"
 
+#define __raspi4__
+
 typedef struct {
   EFI_PHYSICAL_ADDRESS StackBase;
 } UefiSandboxContext;
@@ -54,7 +56,7 @@ extern UefiSandbox CoreSandbox;
 UefiSandbox *FindSandbox(UINTN SandboxID);
 
 
-#define SANDBOX_PERF_INTERFACE_CALL 1
-#define SANDBOX_PERF_COPY_PARAMS 1
+#define SANDBOX_PERF_INTERFACE_CALL 0
+#define SANDBOX_PERF_COPY_PARAMS 0
 
 #endif

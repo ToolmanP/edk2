@@ -1,4 +1,5 @@
 #include "Exception.h"
+#include "AArch64.h"
 #include "UefiSandbox.h"
 #include "Base.h"
 #include "Memory.h"
@@ -34,17 +35,9 @@ STATIC INT32 InstructionOrDataAbort(IN UINTN AbortType, IN UINTN Iss) {
   case 0x3:
     AbortCause = "Address size fault, third level";
     break;
-
-  /*
-   * Translation fault, zeroth level, maybe triggered when sandbox returns
-   */
   case 0x4:
     AbortCause = "Translation fault, zeroth level";
-    if (AbortType == EXCEPTION_INSTRUCTION_ABORT) {
-      return EXCEPTION_SANDBOX_RETURN;
-    }
     break;
-
   case 0x5:
     AbortCause = "Translation fault, first level";
     break;
@@ -63,20 +56,15 @@ STATIC INT32 InstructionOrDataAbort(IN UINTN AbortType, IN UINTN Iss) {
   case 0xb:
     AbortCause = "Access flag fault, third level";
     break;
-
-  /*
-   * Instruction Abort, Permission faults can be caused by Protocol calls
-   */
   case 0xd:
     AbortCause = "Permission fault, first level";
-    return EXCEPTION_INSTRUCTION_PERMISSION_FAULT;
+    break;
   case 0xe:
     AbortCause = "Permission fault, second level";
-    return EXCEPTION_INSTRUCTION_PERMISSION_FAULT;
+    break;
   case 0xf:
     AbortCause = "Permission fault, third level";
-    return EXCEPTION_INSTRUCTION_PERMISSION_FAULT;
-
+    break;
   case 0x10:
     AbortCause = "Synchronous external abort";
     break;
@@ -143,6 +131,8 @@ STATIC INT32 InstructionOrDataAbort(IN UINTN AbortType, IN UINTN Iss) {
     break;
   }
 
+  SBDebug("Abort: %a\n", AbortCause);
+
   return -1;
 }
 
@@ -160,7 +150,9 @@ STATIC INT32 ExceptionSyndrome(IN UINT32 Esr) {
     return 0;
   case 0x20:
   case 0x21:
-    return InstructionOrDataAbort(EXCEPTION_INSTRUCTION_ABORT, Iss);
+    Message = "Instruction Abort";
+    InstructionOrDataAbort(EXCEPTION_INSTRUCTION_ABORT, Iss);
+    break;
   case 0x22:
     Message = "PC alignment fault";
     break;
@@ -169,12 +161,14 @@ STATIC INT32 ExceptionSyndrome(IN UINT32 Esr) {
     break;
   case 0x24:
   case 0x25:
-    // TODO: Data abort caused by accessing Protocol Data Pointer
+    Message = "Data Abort";
     InstructionOrDataAbort(EXCEPTION_DATA_ABORT, Iss);
-    return -1;
+    break;
   default:
     return -1;
   }
+
+  SBDebug("Exception: %a\n", Message);
 
   return -1;
 }
@@ -182,6 +176,8 @@ STATIC INT32 ExceptionSyndrome(IN UINT32 Esr) {
 STATIC VOID HandleSyscall(IN EFI_SYSTEM_CONTEXT SystemContext) {
   UINT64 SyscallNumber;
   UINT64 ReturnValue;
+
+  SBDebug("Handle Syscall %d\n", SystemContext.SystemContextAArch64->X8);
 
   SyscallNumber = SystemContext.SystemContextAArch64->X8;
   if (SyscallNumber >= NR_SYSCALL) {
