@@ -4,7 +4,6 @@
 #include "Library/BaseMemoryLib.h"
 #include "Library/DebugLib.h"
 #include "Library/MemoryAllocationLib.h"
-#include "Library/UefiRuntimeServicesTableLib.h"
 #include "Memory/Malloc.h"
 #include "Memory/Memory.h"
 #include "PointerList.h"
@@ -337,6 +336,7 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
     if (EFI_ERROR(Status)) {
       return Status;
     }
+
     Cursor = (EFI_VIRTUAL_ADDRESS *)AllocateSandboxMemory(
         Owner, sizeof(EFI_VIRTUAL_ADDRESS *));
     *Cursor = NextDst;
@@ -516,14 +516,23 @@ VOID CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
                                 (UINTN)&Dst[Index], sizeof(EFI_VIRTUAL_ADDRESS),
                                 FALSE);
       }
+
     } else {
       if (Param->PointerLevel > 0) {
 
-        if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam)
-          __unimplemented();
-
-        Ctx->Syncable = Param->OutParam;
-        CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
+        if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
+          if (AsciiStrCmp(Param->ParamName, "DriverName") == 0 ||
+              AsciiStrCmp(Param->ParamName, "ComponentName") == 0) {
+            Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
+                Ctx->PointerList->Owner, sizeof(EFI_VIRTUAL_ADDRESS)));
+            InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
+                                    Dst[Index], (UINTN)&Dst[Index],
+                                    sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+          }
+        } else {
+          Ctx->Syncable = Param->OutParam;
+          CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
+        }
       } else {
         Dst[Index] = Src[Index];
       }
@@ -560,7 +569,9 @@ STATIC EFI_STATUS AllocatePersistentLocatedInterface(
   LocatedInterface->Sandboxed = Sandboxed;
   InitPointerRecordList(&LocatedInterface->Magisk.PointerList, CallerSandbox);
   (*Located) = LocatedInterface;
-  return CreateInterfaceMagisk(Protocol, Delegated, CallerSandbox == &CoreSandbox, &LocatedInterface->Magisk);
+  return CreateInterfaceMagisk(Protocol, Delegated,
+                               CallerSandbox == &CoreSandbox,
+                               &LocatedInterface->Magisk);
 }
 
 VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
@@ -576,13 +587,30 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
 
   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
-    if (Param->ParamType->Kind == ProtocolKind && Param->OutParam) {
-      ASSERT(Param->PointerLevel == 2);
-      ASSERT(Param->ParamType->Kind = ProtocolKind);
-      ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
-          CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
-          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
-      *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
+
+    if (Param->ParamType->Kind == ProtocolKind) {
+      if (Param->OutParam) {
+        ASSERT(Param->PointerLevel == 2);
+        ASSERT(Param->ParamType->Kind = ProtocolKind);
+        ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
+            CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
+            *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
+        *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
+      }
+    } else {
+      if (Param->PointerLevel > 1 && Param->OutParam) {
+        if (AsciiStrCmp(Param->ParamName, "DriverName") == 0 ||
+            AsciiStrCmp(Param->ParamName, "ComponentName") == 0) {
+          CHAR16 *PhysDstStr =
+              (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
+          UINTN Size = StrSize(PhysDstStr);
+          CHAR16 *PhysSrcStr =
+              (CHAR16 *)AllocateSandboxMemory(CallerSandbox, Size);
+          CopyMem(PhysSrcStr, PhysDstStr, Size);
+          *(VOID **)TO_PHYS_ADDR(Src[Index]) =
+              (VOID *)TO_VIRT_ADDR((UINTN)PhysSrcStr);
+        }
+      }
     }
 
     Index++;
