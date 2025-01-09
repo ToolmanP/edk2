@@ -424,7 +424,7 @@ MapRangeInPageTable(
 
     T0SZ = ArmGetTCR() & TCR_T0SZ_MASK;
 
-    SBDebug("MapRangeInPageTable: 0x%lx - 0x%lx, Physical: 0x%lx\n", VirtualStart, VirtualEnd, PhysicalStart);
+    // SBDebug("MapRangeInPageTable: 0x%lx - 0x%lx, Physical: 0x%lx\n", VirtualStart, VirtualEnd, PhysicalStart);
 
     Status = UpdateRegionMappingRecursive(
         PhysicalStart, VirtualStart, VirtualEnd, VmrPropToPageAttr(Flags, KernelVMR),

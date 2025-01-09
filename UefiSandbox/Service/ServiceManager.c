@@ -615,7 +615,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 
   ASSERT_EFI_ERROR(Status);
 
-  SBDebug("InterfaceCall: %a Offset: %lu\n", Func->FunctionName, Offset);
+  // SBDebug("InterfaceCall: %a Offset: %lu\n", Func->FunctionName, Offset);
   CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
                           CallSiteParams, Params);
 
