@@ -383,13 +383,13 @@ mCreateEventEx(IN UINT32 Type, IN EFI_TPL NotifyTpl,
 EFI_STATUS
 EFIAPI
 mGetTime(OUT EFI_TIME *Time, OUT EFI_TIME_CAPABILITIES *Capabilities) {
-  return SandboxSyscall1(SANDBOX_SYS_NULL, SANDBOX_SYS_RT_GET_TIME);
+  return SandboxSyscall2(SANDBOX_SYS_RT_GET_TIME, (UINT64) Time, (UINT64) Capabilities);
 }
 
 EFI_STATUS
 EFIAPI
 mSetTime(IN EFI_TIME *Time) {
-  return SandboxSyscall1(SANDBOX_SYS_NULL, SANDBOX_SYS_RT_SET_TIME);
+  return SandboxSyscall1( SANDBOX_SYS_RT_SET_TIME, (UINT64) Time);
 }
 
 EFI_STATUS

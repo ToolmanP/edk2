@@ -52,6 +52,7 @@ struct SandboxPages *AllocateSandboxPages(IN UefiSandbox *Sandbox,
                                           IN OUT EFI_PHYSICAL_ADDRESS *Memory) {
   EFI_STATUS Status;
   struct SandboxPages *Pages;
+  VMR_PROP_T VmrProp;
 
   Status = gBS->AllocatePages(Type, MemoryType, PageNum, Memory);
   if (EFI_ERROR(Status)) {
@@ -68,9 +69,13 @@ struct SandboxPages *AllocateSandboxPages(IN UefiSandbox *Sandbox,
 
   InsertTailList(&Sandbox->MallocManager->AllPageList, &Pages->AllPageEntry);
 
-  /* TODO: Set Attributes according to MemoryType */
+  if (MemoryType == EfiBootServicesCode || MemoryType == EfiRuntimeServicesCode || MemoryType == EfiLoaderCode) {
+    VmrProp = VMR_READ | VMR_EXEC;
+  } else {
+    VmrProp = VMR_READ | VMR_WRITE;
+  }
   AddVMRegion(Sandbox, PHYS_TO_VIRT(*Memory), *Memory, PageNum * PAGE_SIZE,
-              VMR_READ | VMR_WRITE | VMR_EXEC, TRUE);
+              VmrProp, TRUE);
 
   EfiReleaseLock(&Sandbox->MallocManager->MallocLock);
 
@@ -124,17 +129,18 @@ EFI_STATUS FreeSandboxPages(IN UefiSandbox *Sandbox,
 }
 
 EFI_STATUS AllocateSandboxPool(IN UefiSandbox *Sandbox,
-                               IN EFI_MEMORY_TYPE PoolType, IN UINTN Size,
+                               IN EFI_MEMORY_TYPE MemoryType, IN UINTN Size,
                                IN OUT EFI_PHYSICAL_ADDRESS *Address) {
   EFI_STATUS Status;
   VOID *Memory;
   UINTN AlignedSize;
 
   if (Size <= SLAB_MAX_SIZE) {
-    Memory = AllocateInSandboxSlab(Sandbox, Size);
+    Memory = AllocateInSandboxSlab(Sandbox, Size,
+      (MemoryType == EfiBootServicesCode || MemoryType == EfiRuntimeServicesCode || MemoryType == EfiLoaderCode));
   } else {
     AlignedSize = ROUND_UP(Size, PAGE_SIZE);
-    AllocateSandboxPages(Sandbox, AllocateAnyPages, PoolType,
+    AllocateSandboxPages(Sandbox, AllocateAnyPages, MemoryType,
                          AlignedSize / PAGE_SIZE,
                          (EFI_PHYSICAL_ADDRESS *)&Memory);
   }

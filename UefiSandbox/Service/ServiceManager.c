@@ -479,14 +479,12 @@ VOID SandboxSetMem(IN VOID *Buffer, IN UINTN Size, IN UINT8 Value) {
 
 EFI_STATUS
 SandboxGetTime(OUT EFI_TIME *Time, OUT EFI_TIME_CAPABILITIES *Capabilities) {
-  __unimplemented();
-  return EFI_SUCCESS;
+  return gRT->GetTime(Time, Capabilities);
 }
 
 EFI_STATUS
 SandboxSetTime(IN EFI_TIME *Time) {
-  __unimplemented();
-  return EFI_SUCCESS;
+  return gRT->SetTime(Time);
 }
 
 EFI_STATUS

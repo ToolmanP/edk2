@@ -24,7 +24,7 @@ STATIC inline UINT32 SizeToOrder(UINTN Size)
     return Order;
 }
 
-STATIC struct SlabHeader *InitSlabCache(UefiSandbox *Sandbox, UINT32 Order, UINTN Size)
+STATIC struct SlabHeader *InitSlabCache(UefiSandbox *Sandbox, UINT32 Order, UINTN Size, BOOLEAN Executable)
 {
     VOID *Addr;
     struct SlabSlotList *Slot;
@@ -35,7 +35,9 @@ STATIC struct SlabHeader *InitSlabCache(UefiSandbox *Sandbox, UINT32 Order, UINT
     INT32 i;
 
     /* allocate pages for slab */
-    SlabPage = AllocateSandboxPages(Sandbox, AllocateAnyPages, EfiBootServicesData, Size / PAGE_SIZE, (EFI_PHYSICAL_ADDRESS *)&Addr);
+    SlabPage = AllocateSandboxPages(Sandbox, AllocateAnyPages,
+        Executable ? EfiBootServicesCode : EfiBootServicesData,
+        Size / PAGE_SIZE, (EFI_PHYSICAL_ADDRESS *)&Addr);
     if (SlabPage == NULL) {
         return NULL;
     }
@@ -50,6 +52,7 @@ STATIC struct SlabHeader *InitSlabCache(UefiSandbox *Sandbox, UINT32 Order, UINT
     Slab->Order = Order;
     Slab->TotalFreeCount = Count;
     Slab->CurrentFreeCount = Count;
+    Slab->Executable = Executable;
 
     for (i = 0; i < Count - 1; i++) {
         Slot->NextFree = (VOID *)((UINTN)Slot + ObjSize);
@@ -84,21 +87,31 @@ STATIC VOID TryInsertFullSlabToPartial(struct SandboxMallocManager *Manager, str
         return;
     }
 
-    InsertTailList(&Slab->Node, &Manager->SlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList);
+    if (Slab->Executable) {
+        InsertTailList(&Slab->Node, &Manager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList);
+    } else {
+        InsertTailList(&Slab->Node, &Manager->DataSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList);
+    }
 }
 
 STATIC VOID TryFreeSlabPage(UefiSandbox *Sandbox, struct SandboxPages *SlabPage)
 {
     struct SlabHeader *Slab;
+    struct SlabPointer *SlabPool;
 
     Slab = SlabPage->Slab;
+    if (Slab->Executable) {
+        SlabPool = &Sandbox->MallocManager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)];
+    } else {
+        SlabPool = &Sandbox->MallocManager->DataSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)];
+    }
 
     if (Slab->CurrentFreeCount != Slab->TotalFreeCount) {
         return;
     }
 
-    if (Slab == Sandbox->MallocManager->SlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].CurrentSlab) {
-        ChooseNewCurrentSlab(&Sandbox->MallocManager->SlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)], Slab->Order);
+    if (Slab == SlabPool->CurrentSlab) {
+        ChooseNewCurrentSlab(SlabPool, Slab->Order);
     } else {
         /* Remove Slab from PartialList */
         RemoveEntryList(&Slab->Node);
@@ -116,16 +129,20 @@ VOID InitSandboxSlab(struct SandboxMallocManager *Manager)
     UINT32 Order;
 
     for (Order = SLAB_MIN_ORDER; Order <= SLAB_MAX_ORDER; Order++) {
-        Manager->SlabPool[SLAB_ORDER_TO_INDEX(Order)].CurrentSlab = NULL;
-        InitializeListHead(&Manager->SlabPool[SLAB_ORDER_TO_INDEX(Order)].PartialSlabList);
+        Manager->DataSlabPool[SLAB_ORDER_TO_INDEX(Order)].CurrentSlab = NULL;
+        InitializeListHead(&Manager->DataSlabPool[SLAB_ORDER_TO_INDEX(Order)].PartialSlabList);
+
+        Manager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Order)].CurrentSlab = NULL;
+        InitializeListHead(&Manager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Order)].PartialSlabList);
     }
 }
 
-VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size)
+VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size, BOOLEAN Code)
 {
     UINT32 Order;
     struct SlabHeader *CurrentSlab;
     struct SlabSlotList *FreeList;
+    struct SlabPointer *SlabPool;
     VOID *NextSlot;
 
     if (Size > (1 << SLAB_MAX_ORDER)) {
@@ -136,14 +153,20 @@ VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size)
 
     EfiAcquireLock(&Sandbox->MallocManager->SlabLock);
 
-    CurrentSlab = Sandbox->MallocManager->SlabPool[SLAB_ORDER_TO_INDEX(Order)].CurrentSlab;
+    if (Code) {
+        SlabPool = &Sandbox->MallocManager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Order)];
+    } else {
+        SlabPool = &Sandbox->MallocManager->DataSlabPool[SLAB_ORDER_TO_INDEX(Order)];
+    }
+
+    CurrentSlab = SlabPool->CurrentSlab;
     if (CurrentSlab == NULL) {
-        CurrentSlab = InitSlabCache(Sandbox, Order, SIZE_OF_ONE_SLAB);
+        CurrentSlab = InitSlabCache(Sandbox, Order, SIZE_OF_ONE_SLAB, Code);
         if (CurrentSlab == NULL) {
             EfiReleaseLock(&Sandbox->MallocManager->SlabLock);
             return NULL;
         }
-        Sandbox->MallocManager->SlabPool[SLAB_ORDER_TO_INDEX(Order)].CurrentSlab = CurrentSlab;
+        SlabPool->CurrentSlab = CurrentSlab;
     }
 
     FreeList = (struct SlabSlotList *)CurrentSlab->FreeListHead;
@@ -153,7 +176,7 @@ VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size)
 
     CurrentSlab->CurrentFreeCount--;
     if (CurrentSlab->CurrentFreeCount == 0) {
-        ChooseNewCurrentSlab(&Sandbox->MallocManager->SlabPool[SLAB_ORDER_TO_INDEX(Order)], Order);
+        ChooseNewCurrentSlab(SlabPool, Order);
     }
 
     EfiReleaseLock(&Sandbox->MallocManager->SlabLock);

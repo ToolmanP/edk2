@@ -21,6 +21,7 @@ struct SlabHeader {
     UINT32 Order;
     UINT32 TotalFreeCount;
     UINT32 CurrentFreeCount;
+    BOOLEAN Executable;
 };
 
 struct SlabSlotList {
@@ -53,7 +54,8 @@ struct SandboxMallocManager {
     EFI_LOCK SlabLock;
 
     /* Pointers to conveniently find SlabHeader, while corresponding SandboxPages also has pointer of SlabHeader */
-    struct SlabPointer SlabPool[SLAB_MAX_ORDER - SLAB_MIN_ORDER + 1];
+    struct SlabPointer DataSlabPool[SLAB_MAX_ORDER - SLAB_MIN_ORDER + 1];
+    struct SlabPointer CodeSlabPool[SLAB_MAX_ORDER - SLAB_MIN_ORDER + 1];
 };
 
 VOID InitSandboxMallocManager(struct SandboxMallocManager *Manager);
@@ -77,7 +79,7 @@ EFI_STATUS FreeSandboxPages(
 
 EFI_STATUS AllocateSandboxPool(
     IN UefiSandbox *Sandbox,
-    IN EFI_MEMORY_TYPE PoolType,
+    IN EFI_MEMORY_TYPE MemoryType,
     IN UINTN Size,
     IN OUT EFI_PHYSICAL_ADDRESS *Address
 );
@@ -88,7 +90,7 @@ EFI_STATUS FreeSandboxPool(
 );
 
 VOID InitSandboxSlab(struct SandboxMallocManager *Manager);
-VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size);
+VOID *AllocateInSandboxSlab(UefiSandbox *Sandbox, UINTN Size, BOOLEAN Executable);
 VOID FreeInSandboxSlab(UefiSandbox *Sandbox, EFI_PHYSICAL_ADDRESS Address, struct SandboxPages *SandboxPage);
 
 VOID *AllocateSandboxMemory(UefiSandbox *Sandbox, UINTN Size);

@@ -1,6 +1,7 @@
 #include "BinaryGen.h"
 #include "Library/BaseMemoryLib.h"
 #include "Library/SandboxSyscallLib.h"
+#include "Memory.h"
 #include "Memory/Malloc.h"
 #include "ProcessorBind.h"
 
@@ -133,6 +134,9 @@ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
   Count += TrampolineSVC(Trampoline + Count);
   Count += TrampolineRestoreContext(Trampoline + Count);
   Count += TrampolinePostlude(Trampoline + Count);
+
+  DcacheCleanAndInvalidateArea((UINT64)Trampoline, (UINT64)Trampoline + ENTRY_TRAMPOLINE_SIZE);
+  FlushIcacheRange((UINT64)Trampoline, (UINT64)Trampoline + ENTRY_TRAMPOLINE_SIZE);
   return Trampoline;
 }
 
