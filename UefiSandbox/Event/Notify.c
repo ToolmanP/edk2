@@ -32,10 +32,9 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
                             BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
   JumpContext = ALIGN_POINTER(JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
 
-  ReturnTrampoline = CreateSandboxReturnTrampoline(CurrentSandbox,
-                                                   (UINTN)JumpContext);
-  StackBuffer =
-      AllocateSandboxMemory(CurrentSandbox, DEFAULT_STACK_SIZE);
+  ReturnTrampoline =
+      CreateSandboxReturnTrampoline(CurrentSandbox, (UINTN)JumpContext);
+  StackBuffer = AllocateSandboxMemory(CurrentSandbox, DEFAULT_STACK_SIZE);
   SetJumpFlag = SetJump(JumpContext);
 
   if (SetJumpFlag == 0) {
@@ -53,15 +52,21 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
     Params.SPSR = SPSR_EL1_USER;
     Params.ELR = (UINT64)IEvent->NotifyFunction;
 
-    DcacheCleanAndInvalidateArea((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
+    DcacheCleanAndInvalidateArea((UINT64)JumpBuffer,
+                                 (UINT64)JumpBuffer +
+                                     sizeof(BASE_LIBRARY_JUMP_BUFFER) +
+                                     BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+    DcacheCleanAndInvalidateArea((UINT64)StackBuffer,
+                                 (UINT64)StackBuffer + DEFAULT_STACK_SIZE);
+    DcacheCleanAndInvalidateArea((UINT64)ReturnTrampoline,
+                                 (UINT64)ReturnTrampoline + 256);
     FlushIcacheRange((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
 #endif
     CallSandboxFunc(&Params);
     ASSERT(0);
   }
 
-  FreeSandboxPool(CurrentSandbox,
-                  (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
+  FreeSandboxPool(CurrentSandbox, (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
   FreePool(StackBuffer);
   FreePool(JumpBuffer);
   FreePool(Context);

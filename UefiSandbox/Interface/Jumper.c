@@ -110,7 +110,10 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
-      
+
+    DcacheCleanAndInvalidateArea((UINT64)Context.JumpBuffer, (UINT64)Context.JumpBuffer + sizeof(BASE_LIBRARY_JUMP_BUFFER) +
+                                    BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+    DcacheCleanAndInvalidateArea((UINT64)Context.StackBase, (UINT64)Context.StackBase + DEFAULT_STACK_SIZE);
     DcacheCleanAndInvalidateArea((UINT64)Context.ReturnTrampoline, (UINT64)Context.ReturnTrampoline + 256);
     FlushIcacheRange((UINT64)Context.ReturnTrampoline, (UINT64)Context.ReturnTrampoline + 256);
 #endif
