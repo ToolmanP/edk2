@@ -1,10 +1,10 @@
 #ifndef SANDBOX_MEMORY_H_
 #define SANDBOX_MEMORY_H_
 
-#include "UefiSandbox.h"
 #include "Base.h"
 #include "ProcessorBind.h"
 #include "Uefi/UefiBaseType.h"
+#include "UefiSandbox.h"
 
 #if defined(__x86_64__)
 #include "X64/PageTable.h"
@@ -54,6 +54,9 @@ EFI_STATUS RemoveVMRegion(IN UefiSandbox *Sandbox, IN EFI_VIRTUAL_ADDRESS Start,
                           IN EFI_PHYSICAL_ADDRESS PhysicalStart, IN UINT64 Size,
                           IN BOOLEAN TableIsLive);
 
+EFI_STATUS ValidateVMRegion(IN UefiSandbox *Sandbox,
+                            IN EFI_VIRTUAL_ADDRESS Address, IN UINT64 Size);
+
 VOID FreeVMRegions(UefiSandbox *Sandbox);
 
 /* page table operations */
@@ -65,10 +68,8 @@ EFI_STATUS MapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
                                IN EFI_PHYSICAL_ADDRESS PhysicalStart,
                                IN EFI_VIRTUAL_ADDRESS VirtualStart,
                                IN EFI_VIRTUAL_ADDRESS VirtualEnd,
-                               IN VMR_PROP_T Flags,
-                               IN BOOLEAN KernelVMR,
-                               IN BOOLEAN TableIsLive
-                              );
+                               IN VMR_PROP_T Flags, IN BOOLEAN KernelVMR,
+                               IN BOOLEAN TableIsLive);
 EFI_STATUS UnmapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
                                  IN EFI_VIRTUAL_ADDRESS VirtualStart,
                                  IN EFI_VIRTUAL_ADDRESS VirtualEnd,
@@ -77,7 +78,8 @@ EFI_STATUS UnmapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
 void SetPageTable(void *pgtbl);
 EFI_PHYSICAL_ADDRESS GetPageTable(void);
 
-EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable, IN OUT UINT64 *DstPageTable);
+EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable,
+                                    IN OUT UINT64 *DstPageTable);
 VOID PrintPageTable(UINT64 PageTable);
 
 EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr);

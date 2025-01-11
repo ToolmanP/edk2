@@ -7,6 +7,8 @@
 
 **/
 
+#include "Library/BaseLib.h"
+#include "ProcessorBind.h"
 #include "UefiShellLevel2CommandsLib.h"
 
 // This function was from from the BdsLib implementation in
@@ -101,11 +103,18 @@ LoadDriver (
     return (EFI_INVALID_PARAMETER);
   }
 
+  CHAR16 SandboxStr[] = L"FS0:\\Sandbox";
+  BOOLEAN Flag = FALSE;
+  if (StrnCmp(FileName, SandboxStr, StrLen(SandboxStr)) == 0) {
+    DebugPrint(DEBUG_INFO, "Loading %s from Sandbox\n", FileName);
+    Flag = TRUE;
+  }
+
   //
   // Use LoadImage to get it into memory
   //
   Status = gBS->LoadImage (
-                  FALSE,
+                  Flag,
                   gImageHandle,
                   FilePath,
                   NULL,

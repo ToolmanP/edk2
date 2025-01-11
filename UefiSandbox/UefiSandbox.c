@@ -1,4 +1,3 @@
-#include "AArch64.h"
 #include "BinaryGen/BinaryGen.h"
 #include "Exception.h"
 #include "Interface/Registry.h"
@@ -249,6 +248,11 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   InsertTailList(&mSandboxList, &Sandbox->SandboxListNode);
   Sandbox->SandboxID = GetNextSandBoxID();
   *SandboxID = Sandbox->SandboxID;
+
+  for(int i =SLAB_MIN_ORDER;  i <= SLAB_MAX_ORDER; i++) {
+    AllocateSandboxMemory(Sandbox, 1 << i);
+  }
+
   return Status;
 
 free_stack:
@@ -269,6 +273,8 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle, IN UINTN San
   UefiSandbox *Sandbox;
   VOID *ReturnTrampoline;
   UINTN SetJumpFlag;
+
+  // DisableInterrupts();
 
   Sandbox = FindSandbox(SandboxID);
   if (Sandbox == NULL) {
@@ -347,7 +353,7 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle, IN UINTN San
 
   Status = SetJumpFlag - 1;
 
-  SBDebug("SandboxStart Finished\n");
+  SBDebug("StartSandbox %d Finished\n", SandboxID);
 
   return Status;
 }
@@ -389,7 +395,7 @@ CloseSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, UINTN SandboxID) {
 
   FreePool(Sandbox);
 
-  SBPrint("Sandbox %d closed\n", SandboxID);
+  SBDebug("Sandbox %d closed\n", SandboxID);
 
   Status = EFI_SUCCESS;
   return Status;
@@ -495,10 +501,16 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
   InitializeListHead(&CoreSandbox.LocatedInterfaces);
   InitializeListHead(&CoreSandbox.InstalledInterfaces);
+  InitializeListHead(&CoreSandbox.VMRegions);
 
   /* TODO: when will this memory be freed? */
   CoreSandbox.MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
   InitSandboxMallocManager(CoreSandbox.MallocManager);
+
+
+  for(int i =SLAB_MIN_ORDER;  i <= SLAB_MAX_ORDER; i++) {
+    AllocateSandboxMemory(&CoreSandbox, 1 << i);
+  }
 
   CurrentSandbox = &CoreSandbox;
 

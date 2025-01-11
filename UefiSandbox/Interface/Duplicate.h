@@ -25,7 +25,7 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
                                           IN CONST EFI_VIRTUAL_ADDRESS Src,
                                           OUT EFI_VIRTUAL_ADDRESS *Dst,
                                           IN CONST UINTN PointerLevels);
-VOID CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
                              IN CONST REFLECT_FUNC_TYPE *Function,
                              IN CONST UINT64 *Src, OUT UINT64 *Dst);
 VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,

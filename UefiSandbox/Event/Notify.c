@@ -32,9 +32,10 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
                             BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
   JumpContext = ALIGN_POINTER(JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
 
-  ReturnTrampoline =
-      CreateSandboxReturnTrampoline(CurrentSandbox, (UINTN)JumpContext);
-  StackBuffer = AllocateSandboxMemory(CurrentSandbox, DEFAULT_STACK_SIZE);
+  ReturnTrampoline = CreateSandboxReturnTrampoline(CurrentSandbox,
+                                                   (UINTN)JumpContext);
+  StackBuffer =
+      AllocateSandboxMemory(CurrentSandbox, DEFAULT_STACK_SIZE);
   SetJumpFlag = SetJump(JumpContext);
 
   if (SetJumpFlag == 0) {
@@ -66,7 +67,8 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
     ASSERT(0);
   }
 
-  FreeSandboxPool(CurrentSandbox, (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
+  FreeSandboxPool(CurrentSandbox,
+                  (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
   FreePool(StackBuffer);
   FreePool(JumpBuffer);
   FreePool(Context);

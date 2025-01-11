@@ -91,6 +91,21 @@ EFI_STATUS AddVMRegion (
     return Status;
 }
 
+EFI_STATUS ValidateVMRegion(IN UefiSandbox *Sandbox,
+                            IN EFI_VIRTUAL_ADDRESS Address, IN UINT64 Size){
+  LIST_ENTRY *Link;
+  BASE_LIST_FOR_EACH(Link, &Sandbox->VMRegions) {
+    VMRegion *Vmr = BASE_CR(Link, VMRegion, AllVMRegion);
+    if(Size > Vmr->Size)
+      continue;
+    if (Address >= Vmr->Start && Address < Vmr->Start + Vmr->Size) {
+      return EFI_SUCCESS;
+    }
+  }
+  SBError("Address: %p, Size: 0x%lx not in VMRegion\n", Address, Size);
+  return EFI_INVALID_PARAMETER;
+}
+
 EFI_STATUS RemoveVMRegion (
     IN UefiSandbox *Sandbox,
     IN EFI_VIRTUAL_ADDRESS Start,

@@ -19,7 +19,8 @@ typedef struct {
 
 typedef struct {
   LIST_ENTRY Head;
-  UEFI_SANDBOX *Owner;
+  UEFI_SANDBOX *SrcSandbox;
+  UEFI_SANDBOX *DstSandbox;
 } POINTER_LIST;
 
 typedef enum {
@@ -28,8 +29,8 @@ typedef enum {
   POINTER_SYNC_DST_TO_SRC
 } POINTER_SYNC_TYPE;
 
-VOID InitPointerRecordList(IN POINTER_LIST *PointerList, IN UEFI_SANDBOX *Owner);
-VOID InsertPointerRecordList(IN POINTER_LIST *PointerList,
+VOID InitPointerRecordList(IN POINTER_LIST *PointerList, IN UEFI_SANDBOX *SrcSandbox, IN UEFI_SANDBOX *DstSandbox);
+EFI_STATUS InsertPointerRecordList(IN POINTER_LIST *PointerList,
                              IN CONST REFLECT_TYPE *Type,
                              IN CONST EFI_VIRTUAL_ADDRESS Src,
                              IN CONST EFI_VIRTUAL_ADDRESS Dst,

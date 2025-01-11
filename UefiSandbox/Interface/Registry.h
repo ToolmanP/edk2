@@ -43,6 +43,19 @@ typedef struct {
   const REFLECT_PROTOCOL *Desc;
 } InterfaceRegistryCollection;
 
+typedef enum {
+  CONFLICT_GROUP_CONFLICT_NONE,
+  CONFLICT_GROUP_CONFLICT_ANY,
+  CONFLICT_GROUP_CONFLICT_SET,
+} CONFLICT_GROUP_POLICY;
+
+typedef struct  {
+  EFI_GUID Target;
+  CONFLICT_GROUP_POLICY Policy;
+  UINTN ConflictCount;
+  EFI_GUID Conflicts[2];
+} CONFLICT_GROUP;
+
 typedef InterfaceRegistryEntry INTERFACE_REGISTRY_ENTRY;
 typedef InterfaceRegistryCollection INTERFACE_REGISTRY_COLLECTION;
 
@@ -50,20 +63,16 @@ VOID InitSandboxRegistry(VOID);
 
 EFI_STATUS InstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
                                    IN CONST EFI_GUID *ProtocolID,
-                                   IN EFI_HANDLE Handle,
-                                   IN VOID *Opaque);
+                                   IN EFI_HANDLE Handle, IN VOID *Opaque);
 EFI_STATUS ReinstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
                                      IN CONST EFI_GUID *ProtocolID,
-                                     IN VOID *Handle,
-                                     IN VOID *OldInterface,
+                                     IN VOID *Handle, IN VOID *OldInterface,
                                      IN VOID *NewInterface);
 EFI_STATUS UninstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
                                      IN CONST EFI_GUID *ProtocolID,
-                                     IN VOID *Handle,
-                                     IN VOID *Interface);
+                                     IN VOID *Handle, IN VOID *Interface);
 EFI_STATUS LocateSandboxInterface(IN UEFI_SANDBOX *Sandbox,
-                                  IN EFI_HANDLE Handle,
-                                  IN EFI_GUID *ProtocolID,
+                                  IN EFI_HANDLE Handle, IN EFI_GUID *ProtocolID,
                                   IN BOOLEAN ForCore,
                                   OUT LOCATED_INTERFACE **LocatedInterface);
 
@@ -74,9 +83,10 @@ EFI_STATUS OpenSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
                                 IN UINT32 Attributes,
                                 OUT LOCATED_INTERFACE **LocatedInterface);
 
-EFI_STATUS CloseSandboxInterface(
-    IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle, IN EFI_GUID *ProtocolID,
-    IN EFI_HANDLE AgentHandle, IN EFI_HANDLE ControllerHandle);
+EFI_STATUS CloseSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
+                                 IN EFI_GUID *ProtocolID,
+                                 IN EFI_HANDLE AgentHandle,
+                                 IN EFI_HANDLE ControllerHandle);
 
 VOID FreeSandboxInterfaces(IN UEFI_SANDBOX *Sandbox);
 

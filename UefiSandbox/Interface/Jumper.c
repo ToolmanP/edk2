@@ -65,7 +65,6 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
                              IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
 
   UEFI_SANDBOX *CallerSandbox;
-  INTERFACE_CONTEXT Context;
   UINTN SetJumpFlag;
 
   CallerSandbox = CurrentSandbox;
@@ -73,10 +72,34 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
   if (CalleeSandbox == NULL)
     __unreachable("Invalid sandbox\n");
 
-  /* Allocate stack */
-  struct SandboxPages *sbPages =
+#if SANDBOX_PERF_INTERFACE_CALL
+  static BOOLEAN flag = FALSE;
+  static INTERFACE_CONTEXT Context;
+  static struct SandboxPages *sbPages = NULL;
+
+  if (!flag) {
+    /* Allocate stack */
+    sbPages =
+        AllocateSandboxPages(CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
+                             DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
+    UNUSED(sbPages);
+
+    Context.JumpBuffer = AllocatePool(sizeof(BASE_LIBRARY_JUMP_BUFFER) +
+                                      BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+    Context.JumpContext =
+        ALIGN_POINTER(Context.JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+    Context.ReturnTrampoline =
+        CreateSandboxReturnTrampoline(CalleeSandbox, (UINT64)Context.JumpContext);
+    
+    flag = TRUE;
+  }
+#else
+  INTERFACE_CONTEXT Context;
+  struct SandboxPages *sbPages = NULL;
+  sbPages =
       AllocateSandboxPages(CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
                            DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
+  UNUSED(sbPages);
 
   Context.JumpBuffer = AllocatePool(sizeof(BASE_LIBRARY_JUMP_BUFFER) +
                                     BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
@@ -84,6 +107,7 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
       ALIGN_POINTER(Context.JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
   Context.ReturnTrampoline =
       CreateSandboxReturnTrampoline(CalleeSandbox, (UINT64)Context.JumpContext);
+#endif
 
   if (Context.StackBase == 0)
     __unreachable("Failed to allocate stack for sandbox function\n");
@@ -118,17 +142,18 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     FlushIcacheRange((UINT64)Context.ReturnTrampoline, (UINT64)Context.ReturnTrampoline + 256);
 #endif
     ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
-    DebugPrint(DEBUG_INFO, "Counter before call sandbox: %lu\n", ReadCounter());
     CallSandboxFunc(&Context.EntryParams);
     __unreachable("Should not reach here\n");
   }
 
   ASSERT(CalleeSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
-  DebugPrint(DEBUG_INFO, "Counter after call sandbox: %lu\n", ReadCounter());
+
+#if !SANDBOX_PERF_INTERFACE_CALL
   FreeSandboxPages(CalleeSandbox, Context.StackBase,
                    DEFAULT_STACK_SIZE / PAGE_SIZE, sbPages);
   FreePool(Context.JumpBuffer);
   FreeSandboxPool(CalleeSandbox,
                   (EFI_PHYSICAL_ADDRESS)Context.ReturnTrampoline);
+#endif
   return SetJumpFlag - 1;
 }

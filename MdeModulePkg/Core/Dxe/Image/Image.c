@@ -8,6 +8,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "Base.h"
 #include "DxeMain.h"
+#include "Library/BaseLib.h"
+#include "Library/DebugLib.h"
+#include "Library/DevicePathLib.h"
+#include "Library/PrintLib.h"
+#include "Protocol/DevicePath.h"
 #include "Uefi/UefiBaseType.h"
 #include "Image.h"
 
@@ -1565,6 +1570,16 @@ CoreLoadImage (
 
   PERF_LOAD_IMAGE_BEGIN (NULL);
 
+  // TODO: Remove after test
+  static UINT32 Counter = 0;
+  if (BootPolicy) {
+    if (Counter) {
+      DebugPrint(DEBUG_INFO, "Run in Sandbox by setting BootPolicy to TRUE\n");
+      return CoreLoadImageInSandbox(FALSE, ParentImageHandle, FilePath, SourceBuffer, SourceSize, ImageHandle);
+    }
+    Counter++;
+  }
+
   Status = CoreLoadImageCommon (
              BootPolicy,
              ParentImageHandle,
@@ -1630,6 +1645,10 @@ CoreStartImage (
   Image = CoreLoadedImageInfo (ImageHandle);
   if ((Image == NULL) ||  Image->Started) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (Image->SandboxID > 0) {
+    return CoreStartImageInSandbox (ImageHandle, ExitDataSize, ExitData);
   }
 
   if (EFI_ERROR (Image->LoadImageStatus)) {

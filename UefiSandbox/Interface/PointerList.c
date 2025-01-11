@@ -7,17 +7,19 @@
 #include "Print.h"
 
 VOID InitPointerRecordList(IN POINTER_LIST *PointerList,
-                           IN UEFI_SANDBOX *Owner) {
+                           IN UEFI_SANDBOX *SrcSandbox,
+                           IN UEFI_SANDBOX *DstSandbox) {
   InitializeListHead(&PointerList->Head);
-  PointerList->Owner = Owner;
+  PointerList->SrcSandbox = SrcSandbox;
+  PointerList->DstSandbox = DstSandbox;
 }
 
-VOID InsertPointerRecordList(IN POINTER_LIST *PointerList,
-                             IN CONST REFLECT_TYPE *Type,
-                             IN CONST EFI_VIRTUAL_ADDRESS Src,
-                             IN CONST EFI_VIRTUAL_ADDRESS Dst,
-                             IN CONST UINT64 Site, IN CONST UINTN Size,
-                             IN CONST BOOLEAN Syncable) {
+EFI_STATUS InsertPointerRecordList(IN POINTER_LIST *PointerList,
+                                   IN CONST REFLECT_TYPE *Type,
+                                   IN CONST EFI_VIRTUAL_ADDRESS Src,
+                                   IN CONST EFI_VIRTUAL_ADDRESS Dst,
+                                   IN CONST UINT64 Site, IN CONST UINTN Size,
+                                   IN CONST BOOLEAN Syncable) {
 
   POINTER_LIST_ENTRY *Entry;
 
@@ -29,6 +31,11 @@ VOID InsertPointerRecordList(IN POINTER_LIST *PointerList,
   Entry->Site = Site;
   Entry->Syncable = Syncable;
   InsertHeadList(&PointerList->Head, &Entry->NextLink);
+
+  if (PointerList->SrcSandbox != NULL && PointerList->SrcSandbox != &CoreSandbox)
+    return ValidateVMRegion(PointerList->SrcSandbox, Src, Size);
+  else
+    return EFI_SUCCESS;
 }
 
 STATIC VOID ShallowCopy(IN CONST REFLECT_TYPE *Type, IN EFI_VIRTUAL_ADDRESS Src,
@@ -85,7 +92,7 @@ VOID FreePointerRecordList(IN POINTER_LIST *PointerList,
         break;
       }
     }
-    FreeSandboxPool(PointerList->Owner, TO_PHYS_ADDR(Entry->Dst));
+    FreeSandboxPool(PointerList->DstSandbox, TO_PHYS_ADDR(Entry->Dst));
     FreePool(Entry);
   }
 }

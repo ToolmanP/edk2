@@ -10,6 +10,7 @@
 #include "Library/UefiRuntimeServicesTableLib.h"
 #include "Memory/Malloc.h"
 #include "Memory/Memory.h"
+#include "PageTable.h"
 #include "PointerList.h"
 #include "Print.h"
 #include "ProcessorBind.h"
@@ -140,9 +141,10 @@ SandboxInstallProtocolInterface(IN OUT EFI_HANDLE *Handle,
   if (EFI_ERROR(Status))
     return Status;
 
-  Status = LocateSandboxInterface(&CoreSandbox, *Handle, ProtocolID, TRUE, &Located);
+  Status =
+      LocateSandboxInterface(&CoreSandbox, *Handle, ProtocolID, TRUE, &Located);
 
-  SBPrint("In Core: %d, Protocol: %g, Handle: 0x%p "
+  SBDebug("In Core: %d, Protocol: %g, Handle: 0x%p "
           "Interface: 0x%p Magisk Interface: 0x%p\n",
           CoreSandbox.SandboxID, ProtocolID, *Handle, Interface,
           Located->Magisk.Interface);
@@ -212,11 +214,12 @@ SandboxHandleProtocol(IN EFI_HANDLE Handle, IN EFI_GUID *Protocol,
   UEFI_SANDBOX *CallerSandbox;
   LOCATED_INTERFACE *LocatedInterface;
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+  Status = EFI_SUCCESS;
 
-  SBPrint("HandleProtocol: %g Handle: 0x%p\n", Protocol, Handle);
+  SBDebug("HandleProtocol: %g Handle: 0x%p\n", Protocol, Handle);
 
-  Status = LocateSandboxInterface(CallerSandbox, Handle, Protocol,
-                                  FALSE, &LocatedInterface);
+  Status = LocateSandboxInterface(CallerSandbox, Handle, Protocol, FALSE,
+                                  &LocatedInterface);
 
   if (EFI_ERROR(Status))
     goto out;
@@ -226,7 +229,7 @@ SandboxHandleProtocol(IN EFI_HANDLE Handle, IN EFI_GUID *Protocol,
 
 out:
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
-  return EFI_SUCCESS;
+  return Status;
 }
 
 EFI_STATUS
@@ -340,7 +343,7 @@ SandboxOpenProtocol(IN EFI_HANDLE Handle, IN EFI_GUID *Protocol,
     goto out;
   }
 
-  SBPrint("Sandbox: %d, Protocol: %g, Handle: 0x%p "
+  SBDebug("Sandbox: %d, Protocol: %g, Handle: 0x%p "
           "Ptr: 0x%p Interface: 0x%p Magisk Interface: 0x%p\n",
           CallerSandbox->SandboxID, Protocol, Handle, Interface,
           LocatedInterface->Sandboxed->Opaque,
@@ -401,7 +404,6 @@ SandboxLocateHandleBuffer(IN EFI_LOCATE_SEARCH_TYPE SearchType,
 
   Status = gBS->LocateHandle(SearchType, Protocol, SearchKey, &BufferSize,
                              BufferPtr);
-  SBPrint("Status = %r\n", Status);
 
   ASSERT(Status == EFI_BUFFER_TOO_SMALL);
 
@@ -431,8 +433,8 @@ SandboxLocateProtocol(IN EFI_GUID *ProtocolID, IN VOID *Registration OPTIONAL,
 
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
-  Status = LocateSandboxInterface(CallerSandbox, NULL, ProtocolID,
-                                  FALSE, &LocatedInterface);
+  Status = LocateSandboxInterface(CallerSandbox, NULL, ProtocolID, FALSE,
+                                  &LocatedInterface);
 
   if (EFI_ERROR(Status))
     goto out;
@@ -479,12 +481,16 @@ VOID SandboxSetMem(IN VOID *Buffer, IN UINTN Size, IN UINT8 Value) {
 
 EFI_STATUS
 SandboxGetTime(OUT EFI_TIME *Time, OUT EFI_TIME_CAPABILITIES *Capabilities) {
-  return gRT->GetTime(Time, Capabilities);
+  return gRT->GetTime(IS_VIRT_ADDR(Time) ? PTR_VIRT_TO_PHYS(Time) : Time,
+                      IS_VIRT_ADDR(Capabilities)
+                          ? PTR_VIRT_TO_PHYS(Capabilities)
+                          : Capabilities);
 }
 
 EFI_STATUS
 SandboxSetTime(IN EFI_TIME *Time) {
-  return gRT->SetTime(Time);
+  return gRT->SetTime(IS_VIRT_ADDR(Time) ? PTR_VIRT_TO_PHYS(Time) : Time);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -594,15 +600,11 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
-#if SANDBOX_PERF_INTERFACE_CALL
-  DebugPrint(DEBUG_INFO, "Enter InterfaceCall Counter: %ld\n", ReadCounter());
-#endif
-
   CalleeSandbox = (Located->Sandboxed->SandboxID == 0)
                       ? &CoreSandbox
                       : FindSandbox(Located->Sandboxed->SandboxID);
 
-  InitPointerRecordList(&PointerList, CalleeSandbox);
+  InitPointerRecordList(&PointerList, CallerSandbox, CalleeSandbox);
   Ctx = (DUPLICATE_CTX){.PointerList = &PointerList,
                         .CurrentType = NULL,
                         .InUnion = FALSE,
@@ -611,14 +613,13 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 #if SANDBOX_PERF_INTERFACE_CALL
   UINTN GetFunctionStart, GetFunctionEnd;
   GetFunctionStart = ReadCounter();
-  DebugPrint(DEBUG_INFO, "DBQuery Start: %ld\n", GetFunctionStart);
 #endif
 
   Status = GetFunctionByOffset(Located->Desc, Offset, &Func);
 
 #if SANDBOX_PERF_INTERFACE_CALL
   GetFunctionEnd = ReadCounter();
-  DebugPrint(DEBUG_INFO, "DBQuery End: %ld\n", GetFunctionEnd);
+  DebugPrint(DEBUG_INFO, "DBQuery,%lu\n", GetFunctionEnd - GetFunctionStart);
 #endif
 
   ASSERT_EFI_ERROR(Status);
@@ -626,15 +627,14 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 #if SANDBOX_PERF_INTERFACE_CALL
   UINTN CopyStart, CopyEnd;
   CopyStart = ReadCounter();
-  DebugPrint(DEBUG_INFO, "Copy Input Start: %ld\n", CopyStart);
 #endif
 
-  CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
+  Status = CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
                                    CallSiteParams, Params);
 
 #if SANDBOX_PERF_INTERFACE_CALL
   CopyEnd = ReadCounter();
-  DebugPrint(DEBUG_INFO, "Copy Input End: %ld\n", CopyEnd);
+  DebugPrint(DEBUG_INFO, "ParamsCopy,%lu\n", CopyEnd - CopyStart);
 #endif
 
   if (EFI_ERROR(Status)) {
@@ -646,7 +646,6 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 #if SANDBOX_PERF_INTERFACE_CALL
   UINTN ContextSwitchBegin, ContextSwitchEnd;
   ContextSwitchBegin = ReadCounter();
-  DebugPrint(DEBUG_INFO, "CallSandbox Start: %ld\n", ContextSwitchBegin);
 #endif
 
   if (CalleeSandbox == &CoreSandbox) {
@@ -660,14 +659,13 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 
 #if SANDBOX_PERF_INTERFACE_CALL
   ContextSwitchEnd = ReadCounter();
-  DebugPrint(DEBUG_INFO, "CallSandbox End: %ld\n",
-             ContextSwitchEnd);
+  DebugPrint(DEBUG_INFO, "ContextSwitch,%lu\n",
+             ContextSwitchEnd - ContextSwitchBegin);
 #endif
 
 #if SANDBOX_PERF_INTERFACE_CALL
   UINTN CopyBackStart, CopyBackEnd;
   CopyBackStart = ReadCounter();
-  DebugPrint(DEBUG_INFO, "Copy Output Start: %ld\n", CopyBackStart);
 #endif
 
   // SyncInterfaceMagisk(&Located->Magisk);
@@ -678,16 +676,17 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 
 #if SANDBOX_PERF_INTERFACE_CALL
   CopyBackEnd = ReadCounter();
-  DebugPrint(DEBUG_INFO, "Copy Output End: %lu\n", CopyBackEnd);
+  DebugPrint(DEBUG_INFO, "ParamsSync,%lu\n", CopyBackEnd - CopyBackStart);
 #endif
 
-#if SANDBOX_PERF_INTERFACE_CALL
-  DebugPrint(DEBUG_INFO, "Exit InterfaceCall Counter: %lu\n", ReadCounter());
-#endif
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
 
   return Status;
 }
+
+#if defined(__x86_64__)
+extern UINT64 CurrentCpuInfoIndex;
+#endif
 
 EFI_STATUS
 SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
@@ -695,6 +694,9 @@ SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
 
   if (Status == (1UL << sizeof(EFI_STATUS)))
     Status = 0;
+#if defined(__x86_64__)
+  CurrentCpuInfoIndex--;
+#endif
   LongJump(JumpBuffer, Status + 1);
   ASSERT(0);
   return EFI_SUCCESS;

@@ -121,14 +121,17 @@ EFI_STATUS EagerDuplicateCustomTypeField(
   CONST REFLECT_TYPE *FieldType;
   BOOLEAN InUnion, Syncable;
   UINTN ArraySize, MemSize;
-  UEFI_SANDBOX *Owner;
+  UEFI_SANDBOX *DstSandbox;
+  EFI_STATUS Status;
   FieldType = Ctx->CurrentType;
   PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
-  Owner = Ctx->PointerList->Owner;
+  DstSandbox = Ctx->PointerList->DstSandbox;
   InUnion = Ctx->InUnion;
   Syncable = Ctx->Syncable;
   Cursor = PhysTypeBase + Offset;
   ArraySize = SpeculatedArraySize;
+  Status = EFI_SUCCESS;
+
   if (PointerLevel > 0) {
 
     // We can not handle pointer types that are already in union because the
@@ -148,9 +151,11 @@ EFI_STATUS EagerDuplicateCustomTypeField(
         // once.
         ElemCursor = Cursor + i * sizeof(EFI_VIRTUAL_ADDRESS);
         VirtFieldElemSrc = *(EFI_VIRTUAL_ADDRESS *)(ElemCursor);
-        ASSERT(EagerDuplicateTypeMultiPointer(Ctx, VirtFieldElemSrc,
-                                              &VirtFieldElemDst,
-                                              PointerLevel) == EFI_SUCCESS);
+        Status = EagerDuplicateTypeMultiPointer(
+            Ctx, VirtFieldElemSrc, &VirtFieldElemDst, PointerLevel);
+
+        if (EFI_ERROR(Status))
+          goto out;
         // Write the new pointer to the destination of the original struct.
         *(EFI_VIRTUAL_ADDRESS *)(ElemCursor) = VirtFieldElemDst;
       }
@@ -168,8 +173,17 @@ EFI_STATUS EagerDuplicateCustomTypeField(
         if (FieldType->Kind == BasicTypeKind) {
 
           MemSize = FieldType->BasicType->TypeSize * ArraySize;
+
           PhysFieldDst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-              Owner, ArraySize * FieldType->BasicType->TypeSize);
+              DstSandbox, ArraySize * FieldType->BasicType->TypeSize);
+
+          VirtFieldDst = TO_VIRT_ADDR(PhysFieldDst);
+          *(EFI_VIRTUAL_ADDRESS *)(Cursor) = VirtFieldDst;
+          Status =
+              InsertPointerRecordList(Ctx->PointerList, FieldType, VirtFieldSrc,
+                                      VirtFieldDst, Cursor, MemSize, Syncable);
+          if (EFI_ERROR(Status))
+            goto out;
           CopyMem((VOID *)PhysFieldDst, (VOID *)PhysFieldSrc, MemSize);
 
         } else {
@@ -177,7 +191,16 @@ EFI_STATUS EagerDuplicateCustomTypeField(
           // copy.
           MemSize = ArraySize * FieldType->CustomType->TypeSize;
           PhysFieldDst =
-              (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+              (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
+
+          VirtFieldDst = TO_VIRT_ADDR(PhysFieldDst);
+          *(EFI_VIRTUAL_ADDRESS *)(Cursor) = VirtFieldDst;
+          Status =
+              InsertPointerRecordList(Ctx->PointerList, FieldType, VirtFieldSrc,
+                                      VirtFieldDst, Cursor, MemSize, Syncable);
+          if (EFI_ERROR(Status))
+            goto out;
+
           CopyMem((VOID *)PhysFieldDst, (VOID *)PhysFieldSrc, MemSize);
           Ctx->CurrentType = FieldType;
           Ctx->InUnion = InUnion || (FieldType->Kind == CustomTypeKind &&
@@ -186,8 +209,9 @@ EFI_STATUS EagerDuplicateCustomTypeField(
           for (UINTN i = 0; i < ArraySize; i++) {
             VirtFieldElemDst = TO_VIRT_ADDR(PhysFieldDst) +
                                i * FieldType->CustomType->TypeSize;
-            ASSERT(EagerDuplicateCustomType(Ctx, VirtFieldElemDst) ==
-                   EFI_SUCCESS);
+            Status = EagerDuplicateCustomType(Ctx, VirtFieldElemDst);
+            if (EFI_ERROR(Status))
+              goto out;
           }
         }
         // Record the pointer for future synchronization and garbage
@@ -199,7 +223,15 @@ EFI_STATUS EagerDuplicateCustomTypeField(
         MemSize = ArraySize * sizeof(EFI_VIRTUAL_ADDRESS);
         // Now this is a multi-level pointers with a pair of array size.
         PhysFieldDst =
-            (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+            (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
+
+        VirtFieldDst = TO_VIRT_ADDR(PhysFieldDst);
+        *(EFI_VIRTUAL_ADDRESS *)(Cursor) = VirtFieldDst;
+        Status =
+            InsertPointerRecordList(Ctx->PointerList, FieldType, VirtFieldSrc,
+                                    VirtFieldDst, Cursor, MemSize, Syncable);
+        if (EFI_ERROR(Status))
+          goto out;
 
         for (UINTN i = 0; i < ArraySize; i++) {
           Ctx->CurrentType = FieldType;
@@ -217,18 +249,15 @@ EFI_STATUS EagerDuplicateCustomTypeField(
           // Then the level is decreased by 1 and we do the same thing again.
           ElemCursor = PhysFieldSrc + i * sizeof(EFI_VIRTUAL_ADDRESS);
           VirtFieldElemSrc = *(EFI_VIRTUAL_ADDRESS *)(ElemCursor);
-          ASSERT(EagerDuplicateTypeMultiPointer(
-                     Ctx, VirtFieldElemSrc, &VirtFieldElemDst,
-                     PointerLevel - 1) == EFI_SUCCESS);
+          Status = EagerDuplicateTypeMultiPointer(
+              Ctx, VirtFieldElemSrc, &VirtFieldElemDst, PointerLevel - 1);
+          if (EFI_ERROR(Status))
+            goto out;
           ElemCursor = PhysFieldDst + i * sizeof(EFI_VIRTUAL_ADDRESS);
           *(EFI_VIRTUAL_ADDRESS *)(ElemCursor) = VirtFieldElemDst;
         }
         Syncable = FALSE;
       }
-      VirtFieldDst = TO_VIRT_ADDR(PhysFieldDst);
-      *(EFI_VIRTUAL_ADDRESS *)(Cursor) = VirtFieldDst;
-      InsertPointerRecordList(Ctx->PointerList, FieldType, VirtFieldSrc,
-                              VirtFieldDst, Cursor, MemSize, Syncable);
     }
   } else {
     // No Pointer present but we still should do recursive duplicating for
@@ -239,20 +268,23 @@ EFI_STATUS EagerDuplicateCustomTypeField(
                                  !FieldType->CustomType->IsStruct);
       // If it's only a typical struct, we should do deep copy.
       if (ArraySize == 0) {
-        ASSERT(
-            EagerDuplicateCustomType(Ctx, TO_VIRT_ADDR(Cursor) == EFI_SUCCESS));
+        Status =
+            EagerDuplicateCustomType(Ctx, TO_VIRT_ADDR(Cursor) == EFI_SUCCESS);
+        if (EFI_ERROR(Status))
+          goto out;
       } else {
         // For array of custom types, we should do deep copy for each element.
         for (UINTN i = 0; i < ArraySize; i++) {
-          ASSERT(EagerDuplicateCustomType(
-                     Ctx, TO_VIRT_ADDR(Cursor +
-                                       i * FieldType->CustomType->TypeSize)) ==
-                 EFI_SUCCESS);
+          Status = EagerDuplicateCustomType(
+              Ctx, TO_VIRT_ADDR(Cursor + i * FieldType->CustomType->TypeSize));
+          if (EFI_ERROR(Status))
+            goto out;
         }
       }
     }
   }
-  return EFI_SUCCESS;
+out:
+  return Status;
 }
 
 EFI_STATUS EagerDuplicateCustomType(IN DUPLICATE_CTX *Ctx,
@@ -261,6 +293,7 @@ EFI_STATUS EagerDuplicateCustomType(IN DUPLICATE_CTX *Ctx,
   CONST REFLECT_TYPE *Type;
   LIST_ENTRY *Link;
   REFLECT_FIELD *Field;
+  EFI_STATUS Status = EFI_SUCCESS;
   Type = Ctx->CurrentType;
   BASE_LIST_FOR_EACH(Link, &Type->CustomType->Fields) {
     Field = BASE_CR(Link, REFLECT_FIELD, FieldNode);
@@ -268,15 +301,19 @@ EFI_STATUS EagerDuplicateCustomType(IN DUPLICATE_CTX *Ctx,
     // type,
     Ctx->CurrentType = Field->FieldType;
     if (Field->ArraySize != 0)
-      EagerDuplicateCustomTypeField(Ctx, VirtTypeBase, Field->Offset,
-                                    Field->ArraySize, 0, Field->PointerLevel);
+      Status = EagerDuplicateCustomTypeField(Ctx, VirtTypeBase, Field->Offset,
+                                             Field->ArraySize, 0,
+                                             Field->PointerLevel);
     else
-      EagerDuplicateCustomTypeField(
+      Status = EagerDuplicateCustomTypeField(
           Ctx, VirtTypeBase, Field->Offset, 0,
           SpeculateTypeFieldArraySize(VirtTypeBase, Type, Field->FieldName),
           Field->PointerLevel);
+    if (EFI_ERROR(Status))
+      goto out;
   }
-  return EFI_SUCCESS;
+out:
+  return Status;
 }
 
 // Duplicate A ReflectType From Src to Dst. Src is the address of a CustomType.
@@ -286,8 +323,10 @@ STATIC EFI_STATUS EagerDuplicateTypePointer(IN DUPLICATE_CTX *Ctx,
 
   EFI_PHYSICAL_ADDRESS NextPhysBase;
   CONST REFLECT_TYPE *Type;
-  UEFI_SANDBOX *Owner;
-  Owner = Ctx->PointerList->Owner;
+  UEFI_SANDBOX *DstSandbox;
+  EFI_STATUS Status;
+  DstSandbox = Ctx->PointerList->DstSandbox;
+  Status = EFI_SUCCESS;
 
   if (Src == 0) {
     return Ctx->Optional ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
@@ -295,18 +334,22 @@ STATIC EFI_STATUS EagerDuplicateTypePointer(IN DUPLICATE_CTX *Ctx,
 
   Type = Ctx->CurrentType;
   NextPhysBase = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-      Owner, Ctx->CurrentType->CustomType->TypeSize);
+      DstSandbox, Ctx->CurrentType->CustomType->TypeSize);
 
   CopyMem((VOID *)NextPhysBase, (VOID *)(TO_PHYS_ADDR(Src)),
           Ctx->CurrentType->CustomType->TypeSize);
   *(Dst) = TO_VIRT_ADDR(NextPhysBase);
-  ASSERT(EagerDuplicateCustomType(Ctx, TO_VIRT_ADDR(NextPhysBase)) ==
-         EFI_SUCCESS);
 
-  InsertPointerRecordList(Ctx->PointerList, Type, Src, *Dst, (UINT64)Dst,
-                          Type->CustomType->TypeSize, Ctx->Syncable);
+  Status =
+      InsertPointerRecordList(Ctx->PointerList, Type, Src, *Dst, (UINT64)Dst,
+                              Type->CustomType->TypeSize, Ctx->Syncable);
+  if (!EFI_ERROR(Status))
+    goto out;
 
-  return EFI_SUCCESS;
+  Status = EagerDuplicateCustomType(Ctx, TO_VIRT_ADDR(NextPhysBase));
+
+out:
+  return Status;
 }
 // Recursively duplicate a multi-level pointer type. Note that this multi-level
 // pointer is int **Elem not int *Elem[]
@@ -317,14 +360,15 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
 
   EFI_VIRTUAL_ADDRESS NextSrc, NextDst;
   EFI_VIRTUAL_ADDRESS *Cursor;
-  UEFI_SANDBOX *Owner;
+  UEFI_SANDBOX *DstSandbox;
   CONST REFLECT_TYPE *Type;
   EFI_STATUS Status = 0;
 
   Type = Ctx->CurrentType;
-  Owner = Ctx->PointerList->Owner;
+  DstSandbox = Ctx->PointerList->DstSandbox;
 
   if (Src == 0) {
+    *Dst = 0;
     return Ctx->Optional ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
   }
 
@@ -333,28 +377,28 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
     NextSrc = *(EFI_VIRTUAL_ADDRESS *)(TO_PHYS_ADDR(Src));
     Status = EagerDuplicateTypeMultiPointer(Ctx, NextSrc, &NextDst,
                                             PointerLevel - 1);
-    if (EFI_ERROR(Status)) {
-      return Status;
-    }
+    if (EFI_ERROR(Status))
+      goto out;
 
     Cursor = (EFI_VIRTUAL_ADDRESS *)AllocateSandboxMemory(
-        Owner, sizeof(EFI_VIRTUAL_ADDRESS *));
+        DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS *));
     *Cursor = NextDst;
 
     (*Dst) = TO_VIRT_ADDR((EFI_VIRTUAL_ADDRESS)Cursor);
-    InsertPointerRecordList(Ctx->PointerList, Type, NextSrc, NextDst,
-                            (UINT64)Dst, sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
-    return EFI_SUCCESS;
+    return InsertPointerRecordList(Ctx->PointerList, Type, NextSrc, NextDst,
+                                   (UINT64)Dst, sizeof(EFI_VIRTUAL_ADDRESS),
+                                   FALSE);
 
   } else {
     switch (Type->Kind) {
     case BasicTypeKind:
       *Dst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Owner, Type->BasicType->TypeSize);
+          DstSandbox, Type->BasicType->TypeSize);
       CopyMem(Dst, (VOID *)Src, Type->BasicType->TypeSize);
       *Dst = TO_VIRT_ADDR(*Dst);
-      InsertPointerRecordList(Ctx->PointerList, Type, Src, *Dst, (UINT64)Dst,
-                              Type->BasicType->TypeSize, Ctx->Syncable);
+      Status = InsertPointerRecordList(Ctx->PointerList, Type, Src, *Dst,
+                                       (UINT64)Dst, Type->BasicType->TypeSize,
+                                       Ctx->Syncable);
       break;
     case CustomTypeKind:
       Status = EagerDuplicateTypePointer(Ctx, Src, Dst);
@@ -363,22 +407,26 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
       ASSERT(FALSE);
     }
   }
+out:
   return Status;
 }
 
-STATIC VOID CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
-                             IN CONST REFLECT_FUNC_TYPE *Function,
-                             IN CONST REFLECT_PARAM *Param,
-                             IN CONST UINT64 *Src, OUT UINT64 *Dst,
-                             IN CONST UINT64 Index, IN CONST BOOLEAN Alloc) {
+STATIC EFI_STATUS CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
+                                   IN CONST REFLECT_FUNC_TYPE *Function,
+                                   IN CONST REFLECT_PARAM *Param,
+                                   IN CONST UINT64 *Src, OUT UINT64 *Dst,
+                                   IN CONST UINT64 Index,
+                                   IN CONST BOOLEAN Alloc) {
 
   EFI_VIRTUAL_ADDRESS NextVirtDst;
   EFI_PHYSICAL_ADDRESS NextPhysDst;
   UINTN ArraySize, MemSize;
-  UEFI_SANDBOX *Owner;
+  UEFI_SANDBOX *DstSandbox;
   BOOLEAN Syncable;
+  EFI_STATUS Status;
 
-  Owner = Ctx->PointerList->Owner;
+  DstSandbox = Ctx->PointerList->DstSandbox;
+  Status = EFI_SUCCESS;
 
   if (AsciiStrStr(Param->ParamName, "Str") != NULL ||
       AsciiStrCmp(Param->ParamName, "FileName") == 0) {
@@ -386,7 +434,7 @@ STATIC VOID CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
     if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR16") == 0) {
       MemSize = StrSize((CHAR16 *)TO_PHYS_ADDR(Src[Index]));
       Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Ctx->PointerList->Owner, MemSize));
+          Ctx->PointerList->DstSandbox, MemSize));
       CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
 
     } else if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR8") ==
@@ -394,34 +442,56 @@ STATIC VOID CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
 
       MemSize = AsciiStrSize((CHAR8 *)TO_PHYS_ADDR(Src[Index]));
       Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Ctx->PointerList->Owner, MemSize));
+          Ctx->PointerList->DstSandbox, MemSize));
       CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
 
     } else {
       __unimplemented("Str Type: %a\n", Param->ParamType->BasicType->TypeName);
     }
     Syncable = Ctx->Syncable;
-    InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
-                            Dst[Index], (UINT64)&Dst[Index], MemSize, Syncable);
-    return;
+    return InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
+                                   Src[Index], Dst[Index], (UINT64)&Dst[Index],
+                                   MemSize, Syncable);
   }
 
   ArraySize = SpeculateFunctionParamArraySize(Src, Function, Param);
 
   if (Param->PointerLevel == 1) {
 
+    if(Param->Optional && Src[Index] == 0) {
+      Dst[Index] = 0;
+      return EFI_SUCCESS;
+    }
+
     if (Param->ParamType->Kind == BasicTypeKind) {
+      Syncable = Ctx->Syncable;
       MemSize = ArraySize * Param->ParamType->BasicType->TypeSize;
-      NextPhysDst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+      NextPhysDst =
+          (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
+
+      Dst[Index] = TO_VIRT_ADDR(NextPhysDst);
+      Status = InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
+                                       Src[Index], Dst[Index],
+                                       (UINT64)&Dst[Index], MemSize, Syncable);
+      if (EFI_ERROR(Status))
+        goto out;
 
       CopyMem((VOID *)NextPhysDst, (VOID *)TO_PHYS_ADDR(Src[Index]), MemSize);
 
       NextVirtDst = TO_VIRT_ADDR(NextPhysDst);
 
     } else {
-
+      Syncable = Ctx->Syncable;
       MemSize = ArraySize * Param->ParamType->CustomType->TypeSize;
-      NextPhysDst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+      NextPhysDst =
+          (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
+
+      Dst[Index] = TO_VIRT_ADDR(NextPhysDst);
+      Status = InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
+                                       Src[Index], Dst[Index],
+                                       (UINT64)&Dst[Index], MemSize, Syncable);
+      if (EFI_ERROR(Status))
+        goto out;
 
       NextVirtDst = TO_VIRT_ADDR(NextPhysDst);
       CopyMem((VOID *)NextPhysDst, (VOID *)TO_PHYS_ADDR(Src[Index]), MemSize);
@@ -430,36 +500,47 @@ STATIC VOID CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
                       !Param->ParamType->CustomType->IsStruct);
 
       for (UINTN i = 0; i < ArraySize; i++) {
-        ASSERT(EagerDuplicateCustomType(
-                   Ctx,
-                   NextVirtDst + i * Param->ParamType->CustomType->TypeSize) ==
-               EFI_SUCCESS);
+        Status = EagerDuplicateCustomType(
+            Ctx, NextVirtDst + i * Param->ParamType->CustomType->TypeSize);
+        if (EFI_ERROR(Status))
+          goto out;
       }
     }
-    Syncable = Ctx->Syncable;
   } else {
 
     Ctx->CurrentType = Param->ParamType;
     Ctx->InUnion = (Param->ParamType->Kind == CustomTypeKind &&
                     !Param->ParamType->CustomType->IsStruct);
+    Syncable = FALSE;
 
     MemSize = ArraySize * sizeof(EFI_VIRTUAL_ADDRESS);
-    NextPhysDst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+    NextPhysDst =
+        (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
+
+    Dst[Index] = TO_VIRT_ADDR(NextPhysDst);
+    Status = InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
+                                     Src[Index], Dst[Index],
+                                     (UINT64)&Dst[Index], MemSize, Syncable);
+    if (EFI_ERROR(Status))
+      goto out;
 
     for (UINTN i = 0; i < ArraySize; i++) {
-      ASSERT(EagerDuplicateTypeMultiPointer(
-                 Ctx,
-                 *(EFI_VIRTUAL_ADDRESS *)(Src[Index] +
-                                          i * sizeof(EFI_VIRTUAL_ADDRESS)),
-                 &NextVirtDst, Param->PointerLevel - 1) == EFI_SUCCESS);
+      Status = EagerDuplicateTypeMultiPointer(
+          Ctx,
+          *(EFI_VIRTUAL_ADDRESS *)(Src[Index] +
+                                   i * sizeof(EFI_VIRTUAL_ADDRESS)),
+          &NextVirtDst, Param->PointerLevel - 1);
+
+      if (EFI_ERROR(Status))
+        goto out;
+
       *(EFI_VIRTUAL_ADDRESS *)(NextPhysDst + i * sizeof(EFI_VIRTUAL_ADDRESS)) =
           NextVirtDst;
     }
-    Syncable = FALSE;
   }
-  Dst[Index] = TO_VIRT_ADDR(NextPhysDst);
-  InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
-                          Dst[Index], (UINT64)&Dst[Index], MemSize, Syncable);
+
+out:
+  return Status;
 }
 
 __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
@@ -468,8 +549,8 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
     UINT64 Index) {
 
   UINTN ArraySize, MemSize;
-  UEFI_SANDBOX *Owner;
-  Owner = Ctx->PointerList->Owner;
+  UEFI_SANDBOX *DstSandbox;
+  DstSandbox = Ctx->PointerList->DstSandbox;
   ArraySize = SpeculateFunctionParamArraySize(Src, Function, Param);
   if (Param->PointerLevel == 1) {
     if (Param->ParamType->Kind == BasicTypeKind)
@@ -477,27 +558,25 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
     else
       MemSize = ArraySize * Param->ParamType->CustomType->TypeSize;
     Dst[Index] = (EFI_VIRTUAL_ADDRESS)TO_VIRT_ADDR(
-        (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize));
+        (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize));
   } else {
     MemSize = ArraySize * sizeof(EFI_VIRTUAL_ADDRESS);
-    Dst[Index] = (EFI_VIRTUAL_ADDRESS)AllocateSandboxMemory(Owner, MemSize);
+    Dst[Index] =
+        (EFI_VIRTUAL_ADDRESS)AllocateSandboxMemory(DstSandbox, MemSize);
   }
   InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
                           Dst[Index], (UINT64)&Dst[Index], MemSize, FALSE);
 }
 
-VOID CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
-                             IN CONST REFLECT_FUNC_TYPE *Function,
-                             IN CONST UINT64 *Src, OUT UINT64 *Dst) {
+EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+                                   IN CONST REFLECT_FUNC_TYPE *Function,
+                                   IN CONST UINT64 *Src, OUT UINT64 *Dst) {
   REFLECT_PARAM *Param;
   LIST_ENTRY *Link;
   UINTN Index;
+  EFI_STATUS Status;
 
-#if SANDBOX_PERF_COPY_PARAMS
-  UINTN Val1, Val2;
-  Val1 = ReadCounter();
-#endif
-
+  Status = EFI_SUCCESS;
   Index = 0;
   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
@@ -511,28 +590,33 @@ VOID CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
       else {
         ASSERT(Param->PointerLevel == 2);
         Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
-            Ctx->PointerList->Owner, sizeof(EFI_VIRTUAL_ADDRESS)));
-        InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index], Dst[Index],
-                                (UINTN)&Dst[Index], sizeof(EFI_VIRTUAL_ADDRESS),
-                                FALSE);
+            Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
+        Status = InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
+                                         Dst[Index], (UINTN)&Dst[Index],
+                                         sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+        if (EFI_ERROR(Status))
+          goto out;
       }
 
     } else {
       if (Param->PointerLevel > 0) {
 
         if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
-          if (AsciiStrCmp(Param->ParamName, "DriverName") == 0 ||
-              AsciiStrCmp(Param->ParamName, "ComponentName") == 0) {
-            Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
-                Ctx->PointerList->Owner, sizeof(EFI_VIRTUAL_ADDRESS)));
-            InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
-                                    Dst[Index], (UINTN)&Dst[Index],
-                                    sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
-          }
+          ASSERT(Param->PointerLevel == 2);
+          Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
+              Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
+          InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
+                                  Dst[Index], (UINTN)&Dst[Index],
+                                  sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
         } else {
           Ctx->Syncable = Param->OutParam;
-          CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
+          Status =
+              CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
+
+          if (EFI_ERROR(Status))
+            goto out;
         }
+
       } else {
         Dst[Index] = Src[Index];
       }
@@ -540,10 +624,8 @@ VOID CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
     Index++;
   }
 
-#if SANDBOX_PERF_COPY_PARAMS
-  Val2 = ReadCounter();
-  SBPrint("Copy Params Time: %lu\n", Val2 - Val1);
-#endif
+out:
+  return Status;
 }
 
 STATIC EFI_STATUS AllocatePersistentLocatedInterface(
@@ -567,7 +649,8 @@ STATIC EFI_STATUS AllocatePersistentLocatedInterface(
   LocatedInterface->Desc = Protocol;
   LocatedInterface->SandboxID = CallerSandbox->SandboxID;
   LocatedInterface->Sandboxed = Sandboxed;
-  InitPointerRecordList(&LocatedInterface->Magisk.PointerList, CallerSandbox);
+  InitPointerRecordList(&LocatedInterface->Magisk.PointerList, CalleeSandbox,
+                        CallerSandbox);
   (*Located) = LocatedInterface;
   return CreateInterfaceMagisk(Protocol, Delegated,
                                CallerSandbox == &CoreSandbox,
@@ -582,34 +665,38 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
   LOCATED_INTERFACE *Located;
   REFLECT_PARAM *Param;
   LIST_ENTRY *Link;
-  UINTN Index;
+  UINTN ArraySize, Size, Index;
+  VOID *PhysSrc, *PhysDst;
   Index = 0;
 
   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
-
-    if (Param->ParamType->Kind == ProtocolKind) {
-      if (Param->OutParam) {
-        ASSERT(Param->PointerLevel == 2);
-        ASSERT(Param->ParamType->Kind = ProtocolKind);
-        ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
-            CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
-            *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
-        *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
-      }
+    if (Param->ParamType->Kind == ProtocolKind && Param->OutParam) {
+      ASSERT(Param->PointerLevel == 2);
+      ASSERT(Param->ParamType->Kind = ProtocolKind);
+      ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
+          CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
+          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
+      *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
     } else {
       if (Param->PointerLevel > 1 && Param->OutParam) {
-        if (AsciiStrCmp(Param->ParamName, "DriverName") == 0 ||
-            AsciiStrCmp(Param->ParamName, "ComponentName") == 0) {
-          CHAR16 *PhysDstStr =
-              (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
-          UINTN Size = StrSize(PhysDstStr);
-          CHAR16 *PhysSrcStr =
-              (CHAR16 *)AllocateSandboxMemory(CallerSandbox, Size);
-          CopyMem(PhysSrcStr, PhysDstStr, Size);
-          *(VOID **)TO_PHYS_ADDR(Src[Index]) =
-              (VOID *)TO_VIRT_ADDR((UINTN)PhysSrcStr);
+        PhysDst =
+            (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
+
+        if (AsciiStrStr(Param->ParamName, "Name") != NULL) {
+          Size = StrSize(PhysDst);
+        } else {
+
+          ArraySize = SpeculateFunctionParamArraySize(Dst, Function, Param);
+          if (Param->ParamType->Kind == BasicTypeKind)
+            Size = ArraySize * Param->ParamType->BasicType->TypeSize;
+          else
+            Size = ArraySize * Param->ParamType->CustomType->TypeSize;
         }
+        PhysSrc = AllocateSandboxMemory(CallerSandbox, Size);
+        CopyMem(PhysSrc, PhysDst, Size);
+        *(VOID **)TO_PHYS_ADDR(Src[Index]) =
+            (VOID *)TO_VIRT_ADDR((UINTN)PhysSrc);
       }
     }
 
