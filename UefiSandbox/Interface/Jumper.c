@@ -118,11 +118,13 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     FlushIcacheRange((UINT64)Context.ReturnTrampoline, (UINT64)Context.ReturnTrampoline + 256);
 #endif
     ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
+    DebugPrint(DEBUG_INFO, "Counter before call sandbox: %lu\n", ReadCounter());
     CallSandboxFunc(&Context.EntryParams);
     __unreachable("Should not reach here\n");
   }
 
   ASSERT(CalleeSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
+  DebugPrint(DEBUG_INFO, "Counter after call sandbox: %lu\n", ReadCounter());
   FreeSandboxPages(CalleeSandbox, Context.StackBase,
                    DEFAULT_STACK_SIZE / PAGE_SIZE, sbPages);
   FreePool(Context.JumpBuffer);

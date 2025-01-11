@@ -588,15 +588,14 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
   UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
   REFLECT_FUNC_TYPE *Func;
   POINTER_LIST PointerList;
-  EFI_STATUS Status;
+  EFI_STATUS Status = EFI_SUCCESS;
   DUPLICATE_CTX Ctx;
   UINT64 Params[8];
 
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
 #if SANDBOX_PERF_INTERFACE_CALL
-  UINTN Val1, Val2;
-  Val1 = ReadCounter();
+  DebugPrint(DEBUG_INFO, "Enter InterfaceCall Counter: %ld\n", ReadCounter());
 #endif
 
   CalleeSandbox = (Located->Sandboxed->SandboxID == 0)
@@ -609,13 +608,46 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
                         .InUnion = FALSE,
                         .Syncable = TRUE};
 
+#if SANDBOX_PERF_INTERFACE_CALL
+  UINTN GetFunctionStart, GetFunctionEnd;
+  GetFunctionStart = ReadCounter();
+  DebugPrint(DEBUG_INFO, "DBQuery Start: %ld\n", GetFunctionStart);
+#endif
+
   Status = GetFunctionByOffset(Located->Desc, Offset, &Func);
+
+#if SANDBOX_PERF_INTERFACE_CALL
+  GetFunctionEnd = ReadCounter();
+  DebugPrint(DEBUG_INFO, "DBQuery End: %ld\n", GetFunctionEnd);
+#endif
 
   ASSERT_EFI_ERROR(Status);
 
-  // SBDebug("InterfaceCall: %a Offset: %lu\n", Func->FunctionName, Offset);
+#if SANDBOX_PERF_INTERFACE_CALL
+  UINTN CopyStart, CopyEnd;
+  CopyStart = ReadCounter();
+  DebugPrint(DEBUG_INFO, "Copy Input Start: %ld\n", CopyStart);
+#endif
+
   CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
-                          CallSiteParams, Params);
+                                   CallSiteParams, Params);
+
+#if SANDBOX_PERF_INTERFACE_CALL
+  CopyEnd = ReadCounter();
+  DebugPrint(DEBUG_INFO, "Copy Input End: %ld\n", CopyEnd);
+#endif
+
+  if (EFI_ERROR(Status)) {
+    FreePointerRecordList(&PointerList, POINTER_SYNC_TYPE_NONE);
+    ScheduleToSandboxInternal(CallerSandbox, TRUE);
+    return Status;
+  }
+
+#if SANDBOX_PERF_INTERFACE_CALL
+  UINTN ContextSwitchBegin, ContextSwitchEnd;
+  ContextSwitchBegin = ReadCounter();
+  DebugPrint(DEBUG_INFO, "CallSandbox Start: %ld\n", ContextSwitchBegin);
+#endif
 
   if (CalleeSandbox == &CoreSandbox) {
     PointerRecordSiteToPhys(&PointerList); // We should change the virtual
@@ -626,17 +658,34 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
     Status = JumpToSandboxFunc(CalleeSandbox, Located, Params, Offset);
   }
 
+#if SANDBOX_PERF_INTERFACE_CALL
+  ContextSwitchEnd = ReadCounter();
+  DebugPrint(DEBUG_INFO, "CallSandbox End: %ld\n",
+             ContextSwitchEnd);
+#endif
+
+#if SANDBOX_PERF_INTERFACE_CALL
+  UINTN CopyBackStart, CopyBackEnd;
+  CopyBackStart = ReadCounter();
+  DebugPrint(DEBUG_INFO, "Copy Output Start: %ld\n", CopyBackStart);
+#endif
+
   // SyncInterfaceMagisk(&Located->Magisk);
   if (!EFI_ERROR(Status))
     SyncInterfaceCallParams(CallerSandbox, CalleeSandbox, Func, Params,
                             CallSiteParams);
   FreePointerRecordList(&PointerList, POINTER_SYNC_DST_TO_SRC);
-  ScheduleToSandboxInternal(CallerSandbox, TRUE);
 
 #if SANDBOX_PERF_INTERFACE_CALL
-  Val2 = ReadCounter();
-  SBPrint("Perf Elapsed Counters : %lu\n", Val2 - Val1);
+  CopyBackEnd = ReadCounter();
+  DebugPrint(DEBUG_INFO, "Copy Output End: %lu\n", CopyBackEnd);
 #endif
+
+#if SANDBOX_PERF_INTERFACE_CALL
+  DebugPrint(DEBUG_INFO, "Exit InterfaceCall Counter: %lu\n", ReadCounter());
+#endif
+  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+
   return Status;
 }
 

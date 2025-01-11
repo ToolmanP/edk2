@@ -1,0 +1,21 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = SandboxS
+  FILE_GUID                      = 7F5BB93A-C5C7-4CF6-8AF8-DE58311BCCC1
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SandboxTestInit
+
+[Sources]
+  SandboxTestServer.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiSandboxTestProtocolGuid
