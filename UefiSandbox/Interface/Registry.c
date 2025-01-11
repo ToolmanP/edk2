@@ -12,6 +12,8 @@
 #include "Memory.h"
 #include "Print.h"
 #include "ProcessorBind.h"
+#include "Protocol/DiskIo.h"
+#include "Protocol/SerialIo.h"
 #include "Proxy/ProtocolProxy.h"
 #include "Uefi/UefiBaseType.h"
 #include "Uefi/UefiSpec.h"
@@ -190,20 +192,17 @@ EFI_STATUS UninstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
   return EFI_INVALID_PARAMETER;
 }
 
-STATIC VOID InitLocatedSandboxInterface(IN UEFI_SANDBOX *Sandbox,
-                                        IN LOCATED_INTERFACE *Located,
-                                        IN CONST EFI_GUID *ProtocolID,
-                                        IN SANDBOX_INTERFACE *Sandboxed,
-                                        IN EFI_HANDLE AgentHandle,
-                                        IN EFI_HANDLE ControllerHandle,
-                                        IN UINT32 Attributes,
-                                        IN BOOLEAN ForCore) {
+STATIC VOID InitLocatedSandboxInterface(
+    IN UEFI_SANDBOX *Sandbox, IN LOCATED_INTERFACE *Located,
+    IN CONST EFI_GUID *ProtocolID, IN SANDBOX_INTERFACE *Sandboxed,
+    IN EFI_HANDLE AgentHandle, IN EFI_HANDLE ControllerHandle,
+    IN UINT32 Attributes, IN BOOLEAN ForCore) {
 
   REFLECT_PROTOCOL *Protocol;
   CONST VOID *Delegated;
 
   GetProtocol(ProtocolID, &Protocol);
-  InitPointerRecordList(&Located->Magisk.PointerList, Sandbox);
+  InitPointerRecordList(&Located->Magisk.PointerList, NULL, Sandbox);
 
   Located->ID = &Protocol->Guid;
   Located->SandboxID = Sandbox->SandboxID;
@@ -262,10 +261,70 @@ STATIC EFI_STATUS FindInstalledSandboxInterfaceUnique(
   return EFI_NOT_FOUND;
 }
 
+STATIC CONFLICT_GROUP Groups[] = {{
+    .Target = EFI_SERIAL_IO_PROTOCOL_GUID,
+    .Policy = CONFLICT_GROUP_CONFLICT_SET,
+    .ConflictCount = 1,
+    .Conflicts =
+        {
+            EFI_DISK_IO_PROTOCOL_GUID,
+        },
+}};
+
+STATIC BOOLEAN CheckProtocolConflict(IN UEFI_SANDBOX *Sandbox,
+                                     IN CONST EFI_GUID *Target,
+                                     IN CONST EFI_GUID *Candidate) {
+
+  CONFLICT_GROUP *Group = NULL;
+  for (UINTN i = 0; i < sizeof(Groups) / sizeof(CONFLICT_GROUP); i++) {
+    if (CompareGuid(&Groups[i].Target, Target)) {
+      Group = &Groups[i];
+      break;
+    }
+  }
+
+  if (!Group)
+    return FALSE;
+
+  switch (Group->Policy) {
+  case CONFLICT_GROUP_CONFLICT_ANY:
+    return TRUE;
+  case CONFLICT_GROUP_CONFLICT_NONE:
+    return FALSE;
+  case CONFLICT_GROUP_CONFLICT_SET:
+    for (UINTN i = 0; i < Group->ConflictCount; i++) {
+      if (CompareGuid(Candidate, &Group->Conflicts[i])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  default:
+    return TRUE;
+  }
+}
+
+STATIC EFI_STATUS ValidateProtocolAccessControl(IN UEFI_SANDBOX *Sandbox,
+                                                IN EFI_GUID *RequiredGUID) {
+
+  LIST_ENTRY *Link;
+
+  if (Sandbox == &CoreSandbox)
+    return EFI_SUCCESS;
+
+  BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
+    LOCATED_INTERFACE *Located = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);
+    if (!Located->Used)
+      continue;
+    if (CheckProtocolConflict(Sandbox, &Located->Desc->Guid, RequiredGUID)) {
+      return EFI_ACCESS_DENIED;
+    }
+  }
+  return EFI_SUCCESS;
+}
+
 EFI_STATUS LocateSandboxInterface(IN UEFI_SANDBOX *Sandbox,
                                   IN OPTIONAL EFI_HANDLE Handle,
-                                  IN EFI_GUID *ProtocolID,
-                                  IN BOOLEAN ForCore,
+                                  IN EFI_GUID *ProtocolID, IN BOOLEAN ForCore,
                                   OUT LOCATED_INTERFACE **LocatedInterface) {
   LIST_ENTRY *Link;
   LOCATED_INTERFACE *Located = NULL, *LocCursor = NULL;
@@ -274,6 +333,12 @@ EFI_STATUS LocateSandboxInterface(IN UEFI_SANDBOX *Sandbox,
   VOID *Opaque;
   EFI_STATUS Status;
   /* Try to find in Sandbox's UsedInterfaces list */
+
+  Status = ValidateProtocolAccessControl(Sandbox, ProtocolID);
+
+  if (EFI_ERROR(Status))
+    return Status;
+
   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
 
     LocCursor = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);
@@ -355,6 +420,11 @@ EFI_STATUS OpenSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
   LIST_ENTRY *Link;
   VOID *Opaque;
   /* Try to find in Sandbox's UsedInterfaces list */
+
+  Status = ValidateProtocolAccessControl(Sandbox, ProtocolID);
+
+  if (EFI_ERROR(Status))
+    return Status;
 
   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
     LocCursor = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);

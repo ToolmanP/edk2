@@ -14,8 +14,14 @@
 #include "Library/UefiBootServicesTableLib.h"
 #include "Library/HobLib.h"
 
-VOID *mKernelStackBase = NULL;
-CpuInfo mCpuInfo;
+VOID *TssKernelStackBase = 0;
+
+UINT64 CurrentCpuInfoIndex = 0;
+CpuInfo mCpuInfos[7];
+
+UINT8 TmpR12;
+UINT8 TmpR13;
+UINT8 TmpR14;
 
 //
 // Global descriptor table (GDT) Template
@@ -163,7 +169,7 @@ FindStackInfoFromHob (
     if (GET_HOB_TYPE(Hob) == EFI_HOB_TYPE_MEMORY_ALLOCATION) {
       EFI_HOB_MEMORY_ALLOCATION *MemAllocHob = Hob.MemoryAllocation;
       if (CompareGuid(&MemAllocHob->AllocDescriptor.Name, &gEfiHobMemoryAllocStackGuid)) {
-        // æ‰¾åˆ°Stack HOB
+        // ¿¿Stack HOB
         if (StackBase != NULL) {
           *StackBase = MemAllocHob->AllocDescriptor.MemoryBaseAddress;
         }
@@ -182,29 +188,35 @@ VOID CreateTss(UINT64 *TssBase, UINT32 *TssLimit)
 {
   Tss64 *Tss;
 
-  // åˆ†é… TSS å’Œ IOPB çš„å†…å­˜
+  // ¿¿ TSS ¿ IOPB ¿¿¿
   Tss = (Tss64 *) AllocateZeroPool(sizeof(Tss64) + IOPB_SIZE + 1);
 
-  // è®¾ç½® Rsp0 = å†…æ ¸æ ˆé¡¶
-  Tss->Rsp0 = (UINT64)mKernelStackBase + DEFAULT_STACK_SIZE;
+  TssKernelStackBase = AllocatePages(EFI_SIZE_TO_PAGES(DEFAULT_STACK_SIZE));
+  if (TssKernelStackBase == 0) {
+    SBPrint("Failed to allocate kernel stack\n");
+    return;
+  }
 
-  // åˆå§‹åŒ– TSS
-  Tss->IOPBOffset = sizeof(Tss64);   // IOPB çš„åç§»é‡
-  
-  // è·å– IOPB çš„æŒ‡é’ˆ
+  // ¿¿ Rsp0 = ¿¿¿¿
+  Tss->Rsp0 = (UINT64)TssKernelStackBase + DEFAULT_STACK_SIZE;
+
+  // ¿¿¿ TSS
+  Tss->IOPBOffset = sizeof(Tss64);   // IOPB ¿¿¿¿
+
+  // ¿¿ IOPB ¿¿¿
   UINT8 *IOPB = (UINT8 *) ((UINT8 *) Tss + Tss->IOPBOffset);
-  
-  // åˆå§‹åŒ– IOPB
-  SetMem(IOPB, IOPB_SIZE, 0xFF);  // ç¦æ­¢æ‰€æœ‰ç«¯å£çš„è®¿é—®
-  
-  // å…è®¸è®¿é—®æŒ‡å®šç«¯å£
+
+  // ¿¿¿ IOPB
+  SetMem(IOPB, IOPB_SIZE, 0xFF);  // ¿¿¿¿¿¿¿¿¿
+
+  // ¿¿¿¿¿¿¿¿
   UINT16 ports_to_enable[] = {0x402};
   for (int i = 0; i < sizeof(ports_to_enable)/sizeof(UINT16); i++) {
       UINT16 port = ports_to_enable[i];
       IOPB[port / 8] &= ~(1 << (port % 8));
   }
-  
-  // è®¾ç½® IOPB ç»“æŸæ ‡å¿—
+
+  // ¿¿ IOPB ¿¿¿¿
   IOPB[IOPB_SIZE] = 0xFF;
 
   *TssBase = (UINT64) Tss;
@@ -246,8 +258,8 @@ InitGlobalDescriptorTable (
   //
   CopyMem (Gdt, &mGdtTemplate, sizeof (mGdtTemplate));
 
-   
-  UINT64 TssBase = 0; 
+
+  UINT64 TssBase = 0;
   UINT32 TssLimit = 0;
   CreateTss(&TssBase, &TssLimit);
 
@@ -257,12 +269,12 @@ InitGlobalDescriptorTable (
   mTssDesc->LimitLow    = (UINT16)(TssLimit & 0xFFFF);
   mTssDesc->BaseLow     = (UINT16)(TssBase & 0xFFFF);
   mTssDesc->BaseMid     = (UINT8)((TssBase >> 16) & 0xFF);
-  mTssDesc->Access      = 0x89; // 10001001b => P=1, DPL=0, ç±»å‹=1001(64ä½TSS)
+  mTssDesc->Access      = 0x89; // 10001001b => P=1, DPL=0, ¿¿=1001(64¿TSS)
   mTssDesc->Granularity = (UINT8)(((TssLimit >> 16) & 0x0F));
   mTssDesc->BaseHigh    = (UINT8)((TssBase >> 24) & 0xFF);
   mTssDesc->BaseUpper   = (UINT32)((TssBase >> 32) & 0xFFFFFFFF);
   mTssDesc->Reserved    = 0;
- 
+
   //
   // Write GDT register
   //
@@ -286,42 +298,44 @@ InitSyscallMsr ()
   UINT64 val;
 
   //
-  // 1. å¯ç”¨ syscall/sysret  (EFER.SCE = 1)
+  // 1. ¿¿ syscall/sysret  (EFER.SCE = 1)
   //
   val = AsmReadMsr64(MSR_IA32_EFER);
   val |= EFER_SCE;
   AsmWriteMsr64(MSR_IA32_EFER, val);
 
   //
-  // 2. è®¾ç½® STAR: 
+  // 2. ¿¿ STAR:
   //
   UINT64 star = (((USER_CODE_SEL - 16) << 48) | (KERNEL_CODE_SEL << 32));
   SBDebug("star = 0x%lx, USER_CODE_SEL = 0x%x, KERNEL_CODE_SEL = 0x%x\n", star, USER_CODE_SEL, KERNEL_CODE_SEL);
   AsmWriteMsr64(MSR_IA32_STAR, star);
 
   //
-  // 3. è®¾ç½® LSTAR: SYSCALL çš„å…¥å£
+  // 3. ¿¿ LSTAR: SYSCALL ¿¿¿
   //
   AsmWriteMsr64(MSR_IA32_LSTAR, (UINT64)SyscallEntry);
 
   //
-  // 4. è®¾ç½® FMASK
+  // 4. ¿¿ FMASK
   //
   AsmWriteMsr64(MSR_IA32_FMASK, EFLAGS_TF | EFLAGS_IF);
 }
 
 EFI_STATUS ArchInit(VOID)
 {
-  // Create another stack other than the origin kernel stack,
-  // or the original context will be overwritten.
-  mKernelStackBase = AllocatePool(DEFAULT_STACK_SIZE);
-  if (mKernelStackBase == NULL) {
-    SBError("Fail to allocate memory for kernel stack\n");
-    return EFI_OUT_OF_RESOURCES;
-  }
+  VOID *StackBase;
+  /* Use a new stack for every level of syscall */
+  for (UINT8 i = 0; i < 7; i++) {
+    StackBase = AllocatePages(EFI_SIZE_TO_PAGES(DEFAULT_STACK_SIZE));
+    if (StackBase == NULL) {
+      SBError("Fail to allocate memory for syscall kernel stack\n");
+      return EFI_OUT_OF_RESOURCES;
+    }
 
-  mCpuInfo.KernelStackTop = (UINT64)mKernelStackBase + DEFAULT_STACK_SIZE;
-  mCpuInfo.Context = AllocateZeroPool(sizeof(EFI_SYSTEM_CONTEXT_X64));
+    mCpuInfos[i].KernelStackTop = (UINT64) StackBase + DEFAULT_STACK_SIZE;
+    mCpuInfos[i].Context = AllocateZeroPool(sizeof(EFI_SYSTEM_CONTEXT_X64));
+  }
 
   InitGlobalDescriptorTable();
   InitSyscallMsr();

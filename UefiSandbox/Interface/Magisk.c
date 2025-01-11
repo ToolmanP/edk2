@@ -13,8 +13,7 @@ extern CONST UINT64 ENTRY_TRAMPOLINE_SIZE;
 
 STATIC EFI_STATUS CreateInterfaceGenericMagisk(
     IN REFLECT_PROTOCOL *Protocol, IN CONST EFI_VIRTUAL_ADDRESS Delegated,
-    IN BOOLEAN ForCore,
-    IN OUT INTERFACE_MAGISK *Magisk) {
+    IN BOOLEAN ForCore, IN OUT INTERFACE_MAGISK *Magisk) {
 
   EFI_PHYSICAL_ADDRESS PhysMagisk, PhysFieldDst, PhysFieldSrc, Cursor;
   EFI_VIRTUAL_ADDRESS VirtMagisk, VirtFieldDst, VirtFieldSrc;
@@ -22,7 +21,7 @@ STATIC EFI_STATUS CreateInterfaceGenericMagisk(
   REFLECT_PROTOCOL_FIELD *Field;
   LOCATED_INTERFACE *Located;
   LIST_ENTRY *Link;
-  UEFI_SANDBOX *Owner;
+  UEFI_SANDBOX *DstSandbox;
 
   Ctx = (DUPLICATE_CTX){.PointerList = &Magisk->PointerList,
                         .CurrentType = NULL,
@@ -30,9 +29,9 @@ STATIC EFI_STATUS CreateInterfaceGenericMagisk(
                         .Syncable = TRUE};
 
   Located = BASE_CR(Magisk, LOCATED_INTERFACE, Magisk);
-  Owner = Magisk->PointerList.Owner;
+  DstSandbox = Magisk->PointerList.DstSandbox;
   PhysMagisk = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-      Owner, Protocol->ProtocolSize);
+      DstSandbox, Protocol->ProtocolSize);
   VirtMagisk = TO_VIRT_ADDR(PhysMagisk);
   CopyMem((VOID *)PhysMagisk,
           (VOID *)TO_PHYS_ADDR((EFI_VIRTUAL_ADDRESS)Delegated),
@@ -50,7 +49,7 @@ STATIC EFI_STATUS CreateInterfaceGenericMagisk(
     if (AsciiStrCmp(Field->Variable->VariableName, "SupportedLanguages") == 0) {
       UINTN Size = AsciiStrSize((CHAR8 *)PhysFieldSrc);
       PhysFieldDst = (EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Magisk->PointerList.Owner, Size);
+          Magisk->PointerList.DstSandbox, Size);
       CopyMem((VOID *)PhysFieldDst, (VOID *)PhysFieldSrc, Size);
       VirtFieldDst = PHYS_TO_VIRT(PhysFieldDst);
       *(EFI_VIRTUAL_ADDRESS *)Cursor = VirtFieldDst;
@@ -60,7 +59,7 @@ STATIC EFI_STATUS CreateInterfaceGenericMagisk(
 
     if (Field->IsFunction) {
       PhysFieldDst = (EFI_PHYSICAL_ADDRESS)CreateInterfaceEntryPointTrampoline(
-          Owner, (UINT64)Located, Field->Offset, ForCore);
+          DstSandbox, (UINT64)Located, Field->Offset, ForCore);
       VirtFieldDst = PHYS_TO_VIRT(PhysFieldDst);
       *(EFI_VIRTUAL_ADDRESS *)Cursor = VirtFieldDst;
       InsertPointerRecordList(&Magisk->PointerList, NULL, VirtFieldSrc,
@@ -96,7 +95,7 @@ EFI_STATUS CreateInterfaceMagisk(IN REFLECT_PROTOCOL *Protocol,
   if (CompareGuid(&Protocol->Guid, &gEfiDevicePathProtocolGuid)) {
     Size = GetDevicePathSize((VOID *)VIRT_TO_PHYS(Delegated));
     Magisk->Interface = (VOID *)PHYS_TO_VIRT(
-        AllocateSandboxMemory(Magisk->PointerList.Owner, Size));
+        AllocateSandboxMemory(Magisk->PointerList.DstSandbox, Size));
     CopyMem((VOID *)VIRT_TO_PHYS(Magisk->Interface),
             (VOID *)VIRT_TO_PHYS(Delegated), Size);
     return EFI_SUCCESS;
@@ -107,7 +106,7 @@ EFI_STATUS CreateInterfaceMagisk(IN REFLECT_PROTOCOL *Protocol,
 EFI_STATUS FreeInterfaceMagisk(IN CONST EFI_GUID *ProtocolID,
                                IN OUT INTERFACE_MAGISK *Magisk) {
 
-  FreeSandboxPool(Magisk->PointerList.Owner,
+  FreeSandboxPool(Magisk->PointerList.DstSandbox,
                   VIRT_TO_PHYS((EFI_VIRTUAL_ADDRESS)(Magisk->Interface)));
 
   if (CompareGuid(ProtocolID, &gEfiDevicePathProtocolGuid)) {

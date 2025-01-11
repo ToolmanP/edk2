@@ -392,7 +392,7 @@ const EFI_GUID SandboxDriverGuids[] = {
   /*FatDxe*/
   {
     0x961578FE, 0xB6B7, 0x44C3, { 0xAF, 0x35, 0x6B, 0xC7, 0x05, 0xCD, 0x2B, 0x1F }
-  }, 
+  },
 };
 
 static BOOLEAN IsDriverSandboxed(EFI_GUID *DriverName) {

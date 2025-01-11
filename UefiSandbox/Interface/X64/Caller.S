@@ -6,23 +6,25 @@
 .text
 .align  8
 BEGIN_FUNC(CallCoreFunc)
-  # rdi = Params (指向包含6个UINT64的数组)
-  # rsi = FunctionAddress (函数地址)
+  push %rbp
+  movq %rsp, %rbp
 
-  movq %rdi, %r12
+  # Protocol functions are ms_abi
+  movq (%rdi), %rcx
+  movq 0x8(%rdi), %rdx
+  movq 0x10(%rdi), %r8
+  movq 0x18(%rdi), %r9
+
+  push 0x28(%rdi)
+  push 0x20(%rdi)
+
+  # shadow space
+  sub $0x20, %rsp
+
   movq %rsi, %rax
-
-  # FIXME: MS ABI
-  movq 0(%r12), %rdi        # Params[0] -> rdi
-  movq 8(%r12), %rsi        # Params[1] -> rsi
-  movq 16(%r12), %rdx       # Params[2] -> rdx
-  movq 24(%r12), %rcx       # Params[3] -> rcx
-  movq 32(%r12), %r8        # Params[4] -> r8
-  movq 40(%r12), %r9        # Params[5] -> r9
-
-  # 调用指定的 FunctionAddress
   call *%rax
 
+  leave
   ret
 END_FUNC(CallCoreFunc)
 

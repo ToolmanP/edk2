@@ -1,6 +1,8 @@
 #include "Init/ArchInit.h"
 #include "Uefi/UefiBaseType.h"
 
+UINT8 CurrentCpuInfoIndex = 0;
+
 EFI_STATUS ArchInit(VOID) {
     return EFI_SUCCESS;
 }

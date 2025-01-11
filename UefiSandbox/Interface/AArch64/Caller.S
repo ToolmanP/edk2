@@ -6,6 +6,12 @@
  */
 // Callee saved registers: x19-x29, x30
 ASM_FUNC(CallCoreFunc)
+
+    // Save the callee saved registers
+
+    stp x29, x30, [sp, #-0x10]!
+    stp x25, x26, [sp, #-0x10]!
+
     mov x26, x0
     mov x25, x1
 
@@ -14,12 +20,10 @@ ASM_FUNC(CallCoreFunc)
     ldp x4, x5, [x26, #0x20]
     ldp x6, x7, [x26, #0x30]
 
-    str x30, [x26]
-
     blr x25
 
-    ldr x30, [x26]
-    str x0, [x26]
+    ldp x25, x26, [sp], #0x10
+    ldp x29, x30, [sp], #0x10
     ret
 
 
@@ -27,17 +31,17 @@ ASM_FUNC(CallCoreFunc)
 ASM_FUNC(CallSandboxFunc)
   dmb ish
 
-  mov      x15, x0
+  mov      x25, x0
 
-  ldp x0, x1, [x15]
-  ldp x2, x3, [x15, #0x10]
-  ldp x4, x5, [x15, #0x20]
-  ldp x6, x7, [x15, #0x30]
+  ldp x0, x1, [x25]
+  ldp x2, x3, [x25, #0x10]
+  ldp x4, x5, [x25, #0x20]
+  ldp x6, x7, [x25, #0x30]
 
 
   // Pop the SYS regs we need
-  ldp x12, x13, [x15, #0x40]
-  ldp x14, x15, [x15, #0x50]
+  ldp x12, x13, [x25, #0x40]
+  ldp x14, x15, [x25, #0x50]
 
   msr fpsr, xzr
 

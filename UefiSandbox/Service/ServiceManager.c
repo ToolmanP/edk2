@@ -10,6 +10,7 @@
 #include "Library/UefiRuntimeServicesTableLib.h"
 #include "Memory/Malloc.h"
 #include "Memory/Memory.h"
+#include "PageTable.h"
 #include "PointerList.h"
 #include "Print.h"
 #include "ProcessorBind.h"
@@ -212,6 +213,7 @@ SandboxHandleProtocol(IN EFI_HANDLE Handle, IN EFI_GUID *Protocol,
   UEFI_SANDBOX *CallerSandbox;
   LOCATED_INTERFACE *LocatedInterface;
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+  Status = EFI_SUCCESS;
 
   SBPrint("HandleProtocol: %g Handle: 0x%p\n", Protocol, Handle);
 
@@ -226,7 +228,7 @@ SandboxHandleProtocol(IN EFI_HANDLE Handle, IN EFI_GUID *Protocol,
 
 out:
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
-  return EFI_SUCCESS;
+  return Status;
 }
 
 EFI_STATUS
@@ -479,12 +481,15 @@ VOID SandboxSetMem(IN VOID *Buffer, IN UINTN Size, IN UINT8 Value) {
 
 EFI_STATUS
 SandboxGetTime(OUT EFI_TIME *Time, OUT EFI_TIME_CAPABILITIES *Capabilities) {
-  return gRT->GetTime(Time, Capabilities);
+  return gRT->GetTime(
+    IS_VIRT_ADDR(Time) ? PTR_VIRT_TO_PHYS(Time) : Time,
+    IS_VIRT_ADDR(Capabilities) ? PTR_VIRT_TO_PHYS(Capabilities) : Capabilities);
 }
 
 EFI_STATUS
 SandboxSetTime(IN EFI_TIME *Time) {
-  return gRT->SetTime(Time);
+  return gRT->SetTime(IS_VIRT_ADDR(Time) ? PTR_VIRT_TO_PHYS(Time) : Time);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -588,7 +593,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
   UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
   REFLECT_FUNC_TYPE *Func;
   POINTER_LIST PointerList;
-  EFI_STATUS Status;
+  EFI_STATUS Status = EFI_SUCCESS;
   DUPLICATE_CTX Ctx;
   UINT64 Params[8];
 
@@ -603,7 +608,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
                       ? &CoreSandbox
                       : FindSandbox(Located->Sandboxed->SandboxID);
 
-  InitPointerRecordList(&PointerList, CalleeSandbox);
+  InitPointerRecordList(&PointerList, CallerSandbox, CalleeSandbox);
   Ctx = (DUPLICATE_CTX){.PointerList = &PointerList,
                         .CurrentType = NULL,
                         .InUnion = FALSE,
@@ -613,9 +618,14 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
 
   ASSERT_EFI_ERROR(Status);
 
-  // SBDebug("InterfaceCall: %a Offset: %lu\n", Func->FunctionName, Offset);
-  CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
+  Status = CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
                           CallSiteParams, Params);
+
+  if(EFI_ERROR(Status)) {
+    FreePointerRecordList(&PointerList, POINTER_SYNC_TYPE_NONE);
+    ScheduleToSandboxInternal(CallerSandbox, TRUE);
+    return Status;
+  }
 
   if (CalleeSandbox == &CoreSandbox) {
     PointerRecordSiteToPhys(&PointerList); // We should change the virtual
@@ -630,6 +640,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
   if (!EFI_ERROR(Status))
     SyncInterfaceCallParams(CallerSandbox, CalleeSandbox, Func, Params,
                             CallSiteParams);
+
   FreePointerRecordList(&PointerList, POINTER_SYNC_DST_TO_SRC);
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
 
@@ -640,12 +651,22 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
   return Status;
 }
 
+
+#if defined(__x86_64__)
+extern UINT64 CurrentCpuInfoIndex;
+#endif
+
 EFI_STATUS
 SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
                          EFI_STATUS Status) {
 
+
   if (Status == (1UL << sizeof(EFI_STATUS)))
     Status = 0;
+
+#if defined(__x86_64__)
+  CurrentCpuInfoIndex--;
+#endif
   LongJump(JumpBuffer, Status + 1);
   ASSERT(0);
   return EFI_SUCCESS;
