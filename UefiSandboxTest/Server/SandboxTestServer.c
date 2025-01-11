@@ -1,4 +1,5 @@
 #include "Base.h"
+#include "Library/BaseCounterLib/Counter.h"
 #include "Library/DebugLib.h"
 #include "Library/MemoryAllocationLib.h"
 #include "Library/UefiBootServicesTableLib.h"

@@ -1,3 +1,4 @@
+#include "Base.h"
 #include "Library/BaseCounterLib/Counter.h"
 #include "Library/BaseLib.h"
 #include "Library/DebugLib.h"
@@ -9,13 +10,13 @@
 
 EFI_SANDBOX_TEST_PROTOCOL *SandboxTest;
 
-#define PRINT_TOTAL 0
+#define PRINT_TOTAL 1
 
 EFI_STATUS
 Test0(UINT64 *TotalTSC) {
   EFI_STATUS Status;
-  // UINT64 StartTSC, EndTSC;
-  // UINT64 CallStartTSC, CallEndTSC;
+  UINT64 StartTSC, EndTSC;
+  UINT64 CallStartTSC, CallEndTSC;
   UINT64 CallAverageTSC = 0;
   // UINT64 mSum = 0;
   (void)(CallAverageTSC);
@@ -27,17 +28,18 @@ Test0(UINT64 *TotalTSC) {
     //   return Status;
     // }
 
-    // StartTSC = ReadCounter();
+    StartTSC = ReadCounter();
 
     for (UINT64 i = 0; i < 100; i++) {
-      // CallStartTSC = ReadCounter();
+      CallStartTSC = ReadCounter();
       Status = SandboxTest->SimpleCallTest(SandboxTest, i, FALSE, 0);
       if (EFI_ERROR(Status)) {
         DebugPrint(DEBUG_ERROR, "Test0 failed\n");
         return Status;
       }
-      // CallEndTSC = ReadCounter();
-      // CallAverageTSC += CallEndTSC - CallStartTSC;
+      CallEndTSC = ReadCounter();
+      CallAverageTSC += CallEndTSC - CallStartTSC;
+      
       // mSum += i;
     }
 
@@ -47,11 +49,11 @@ Test0(UINT64 *TotalTSC) {
     //   return Status;
     // }
 
-    // EndTSC = ReadCounter();
+    EndTSC = ReadCounter();
 
-    // if (TotalTSC != NULL) {
-    //   *TotalTSC = EndTSC - StartTSC;
-    // }
+    if (TotalTSC != NULL) {
+      *TotalTSC = EndTSC - StartTSC;
+    }
 #if PRINT_TOTAL
     DebugPrint(DEBUG_INFO, "Simple,%ld,%ld\n", *TotalTSC, CallAverageTSC / 100);
 #endif
@@ -63,7 +65,7 @@ Test0(UINT64 *TotalTSC) {
 EFI_STATUS
 Test1(UINT64 *TotalTSC) {
   EFI_STATUS Status;
-  // UINT64 StartTSC, EndTSC;
+  UINT64 StartTSC, EndTSC;
   // UINT64 mSum = 0;
   UINT64 Value;
 
@@ -74,12 +76,12 @@ Test1(UINT64 *TotalTSC) {
     //   return Status;
     // }
 
-    // StartTSC = ReadCounter();
+    StartTSC = ReadCounter();
 
     for (UINT64 i = 0; i < 100; i++) {
       Value = i;
       Status =
-          SandboxTest->SimpleInputPointerTest(SandboxTest, &Value, FALSE, 0);
+          SandboxTest->SimpleInputPointerTest(SandboxTest, &Value, FALSE, 0);  
       if (EFI_ERROR(Status)) {
         DebugPrint(DEBUG_ERROR, "Test1 failed\n");
         return Status;
@@ -93,11 +95,11 @@ Test1(UINT64 *TotalTSC) {
     //   return Status;
     // }
 
-    // EndTSC = ReadCounter();
+    EndTSC = ReadCounter();
 
-    // if (TotalTSC != NULL) {
-    //   *TotalTSC = EndTSC - StartTSC;
-    // }
+    if (TotalTSC != NULL) {
+      *TotalTSC = EndTSC - StartTSC;
+    }
 #if PRINT_TOTAL
     DebugPrint(DEBUG_INFO, "Pointer,%ld,%ld\n", *TotalTSC, *TotalTSC / 100);
 #endif
@@ -160,7 +162,7 @@ Test2(UINT64 *TotalTSC) {
 EFI_STATUS
 Test3(UINT64 *TotalTSC) {
   EFI_STATUS Status;
-  // UINT64 StartTSC, EndTSC;
+  UINT64 StartTSC, EndTSC;
   UINT64 mSum = 0;
   UINT64 BufferSize = 100 * sizeof(UINT64);
   VOID *Buffer;
@@ -178,7 +180,7 @@ Test3(UINT64 *TotalTSC) {
       mSum += i;
     }
 
-    // StartTSC = ReadCounter();
+    StartTSC = ReadCounter();
 
     Status = SandboxTest->LargeInputBufferTest(SandboxTest, Buffer, BufferSize,
                                                mSum);
@@ -187,11 +189,11 @@ Test3(UINT64 *TotalTSC) {
       return Status;
     }
 
-    // EndTSC = ReadCounter();
+    EndTSC = ReadCounter();
 
-    // if (TotalTSC != NULL) {
-    //   *TotalTSC = EndTSC - StartTSC;
-    // }
+    if (TotalTSC != NULL) {
+      *TotalTSC = EndTSC - StartTSC;
+    }
 #if PRINT_TOTAL
     DebugPrint(DEBUG_INFO, "Large,%ld,-1\n", *TotalTSC);
 #endif
@@ -203,7 +205,7 @@ Test3(UINT64 *TotalTSC) {
 EFI_STATUS
 Test4(UINT64 *TotalTSC) {
   EFI_STATUS Status;
-  // UINT64 StartTSC, EndTSC;
+  UINT64 StartTSC, EndTSC;
   // UINT64 mSum = 0;
   UINT64 *Buffer = NULL;
   UINT64 BufferSize = 0;
@@ -216,7 +218,7 @@ Test4(UINT64 *TotalTSC) {
     //   return Status;
     // }
 
-    // StartTSC = ReadCounter();
+    StartTSC = ReadCounter();
 
     Status = SandboxTest->OutputPointerTest(SandboxTest, &BufferSize,
                                             &NumberSum, (VOID **)&Buffer);
@@ -234,11 +236,11 @@ Test4(UINT64 *TotalTSC) {
     //   return EFI_ABORTED;
     // }
 
-    // EndTSC = ReadCounter();
+    EndTSC = ReadCounter();
 
-    // if (TotalTSC != NULL) {
-    //   *TotalTSC = EndTSC - StartTSC;
-    // }
+    if (TotalTSC != NULL) {
+      *TotalTSC = EndTSC - StartTSC;
+    }
 #if PRINT_TOTAL
     DebugPrint(DEBUG_INFO, "OutputPointer,%ld,-1\n", *TotalTSC);
 #endif

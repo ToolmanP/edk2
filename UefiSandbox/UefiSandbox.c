@@ -275,7 +275,7 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle, IN UINTN San
   VOID *ReturnTrampoline;
   UINTN SetJumpFlag;
 
-  // DisableInterrupts();
+  DisableInterrupts();
 
   Sandbox = FindSandbox(SandboxID);
   if (Sandbox == NULL) {
