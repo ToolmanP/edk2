@@ -1,6 +1,7 @@
 #include "BinaryGen/BinaryGen.h"
 #include "Exception.h"
 #include "Interface/Registry.h"
+#include "Library/ArmLib.h"
 #include "ProcessorBind.h"
 #include "Proxy/ProtocolProxy.h"
 #include "SystemTable/SystemTable.h"
@@ -441,6 +442,8 @@ EFIAPI
 SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
   EFI_STATUS Status;
   UINT64 CoreTranslationTableBase;
+
+  DebugPrint(DEBUG_INFO, "Frequency: %ld\n", ArmReadCntFrq());
 
   Status = ArchInit();
   if (EFI_ERROR(Status)) {
