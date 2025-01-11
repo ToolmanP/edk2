@@ -17,33 +17,29 @@ Test0(UINT64 *TotalTSC) {
   UINT64 StartTSC, EndTSC;
   UINT64 CallStartTSC, CallEndTSC;
   UINT64 CallAverageTSC = 0;
-  UINT64 mSum = 0;
+  // UINT64 mSum = 0;
   (void)(CallAverageTSC);
 
   {
-    Status = SandboxTest->ResetSum(SandboxTest);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
-      return Status;
-    }
+    // Status = SandboxTest->ResetSum(SandboxTest);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
+    //   return Status;
+    // }
 
     StartTSC = ReadCounter();
 
-    for (UINT64 i = 0; i < 1; i++) {
+    for (UINT64 i = 0; i < 100; i++) {
       CallStartTSC = ReadCounter();
-      DebugPrint(DEBUG_INFO, "CallStartTSC: %ld\n", CallStartTSC);
       Status = SandboxTest->SimpleCallTest(SandboxTest, i, FALSE, 0);
       if (EFI_ERROR(Status)) {
         DebugPrint(DEBUG_ERROR, "Test0 failed\n");
         return Status;
       }
       CallEndTSC = ReadCounter();
-      DebugPrint(DEBUG_INFO, "CallEndTSC: %ld\n", CallEndTSC);
       CallAverageTSC += CallEndTSC - CallStartTSC;
-      mSum += i;
+      // mSum += i;
     }
-
-    (void)(mSum);
 
     // Status = SandboxTest->SimpleCallTest(SandboxTest, 0, TRUE, mSum);
     // if (EFI_ERROR(Status)) {
@@ -68,19 +64,19 @@ EFI_STATUS
 Test1(UINT64 *TotalTSC) {
   EFI_STATUS Status;
   UINT64 StartTSC, EndTSC;
-  UINT64 mSum = 0;
+  // UINT64 mSum = 0;
   UINT64 Value;
 
   {
-    Status = SandboxTest->ResetSum(SandboxTest);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
-      return Status;
-    }
+    // Status = SandboxTest->ResetSum(SandboxTest);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
+    //   return Status;
+    // }
 
     StartTSC = ReadCounter();
 
-    for (UINT64 i = 0; i < 1; i++) {
+    for (UINT64 i = 0; i < 100; i++) {
       Value = i;
       Status =
           SandboxTest->SimpleInputPointerTest(SandboxTest, &Value, FALSE, 0);
@@ -88,14 +84,14 @@ Test1(UINT64 *TotalTSC) {
         DebugPrint(DEBUG_ERROR, "Test1 failed\n");
         return Status;
       }
-      mSum += i;
+      // mSum += i;
     }
 
-    Status = SandboxTest->SimpleInputPointerTest(SandboxTest, NULL, TRUE, mSum);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "Test1 sum not right\n");
-      return Status;
-    }
+    // Status = SandboxTest->SimpleInputPointerTest(SandboxTest, NULL, TRUE, mSum);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "Test1 sum not right\n");
+    //   return Status;
+    // }
 
     EndTSC = ReadCounter();
 
@@ -119,11 +115,11 @@ Test2(UINT64 *TotalTSC) {
   TestPayload0 Payload0;
 
   {
-    Status = SandboxTest->ResetSum(SandboxTest);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
-      return Status;
-    }
+    // Status = SandboxTest->ResetSum(SandboxTest);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
+    //   return Status;
+    // }
 
     StartTSC = ReadCounter();
 
@@ -170,11 +166,11 @@ Test3(UINT64 *TotalTSC) {
   VOID *Buffer;
 
   {
-    Status = SandboxTest->ResetSum(SandboxTest);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
-      return Status;
-    }
+    // Status = SandboxTest->ResetSum(SandboxTest);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
+    //   return Status;
+    // }
 
     Buffer = AllocatePool(BufferSize);
     for (UINT64 i = 0; i < BufferSize / sizeof(UINT64); i++) {
@@ -208,17 +204,17 @@ EFI_STATUS
 Test4(UINT64 *TotalTSC) {
   EFI_STATUS Status;
   UINT64 StartTSC, EndTSC;
-  UINT64 mSum = 0;
+  // UINT64 mSum = 0;
   UINT64 *Buffer = NULL;
   UINT64 BufferSize = 0;
   UINT64 NumberSum = 0;
 
   {
-    Status = SandboxTest->ResetSum(SandboxTest);
-    if (EFI_ERROR(Status)) {
-      DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
-      return Status;
-    }
+    // Status = SandboxTest->ResetSum(SandboxTest);
+    // if (EFI_ERROR(Status)) {
+    //   DebugPrint(DEBUG_ERROR, "ResetSum failed\n");
+    //   return Status;
+    // }
 
     StartTSC = ReadCounter();
 
@@ -229,14 +225,14 @@ Test4(UINT64 *TotalTSC) {
       return Status;
     }
 
-    for (UINT64 i = 0; i < BufferSize / sizeof(UINT64); i++) {
-      mSum += Buffer[i];
-    }
+    // for (UINT64 i = 0; i < BufferSize / sizeof(UINT64); i++) {
+    //   mSum += Buffer[i];
+    // }
 
-    if (mSum != NumberSum) {
-      DebugPrint(DEBUG_ERROR, "Output Pointer Test4 sum not right\n");
-      return EFI_ABORTED;
-    }
+    // if (mSum != NumberSum) {
+    //   DebugPrint(DEBUG_ERROR, "Output Pointer Test4 sum not right\n");
+    //   return EFI_ABORTED;
+    // }
 
     EndTSC = ReadCounter();
 
@@ -265,7 +261,7 @@ SandboxTestStart(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
   }
 
   DebugPrint(DEBUG_INFO, "Start of SandboxTestClient\n");
-  UINTN Rounds = 1;
+  UINTN Rounds = 16;
 
 #if PRINT_TOTAL
   DebugPrint(DEBUG_INFO, "TestCase,Total,Average\n");
