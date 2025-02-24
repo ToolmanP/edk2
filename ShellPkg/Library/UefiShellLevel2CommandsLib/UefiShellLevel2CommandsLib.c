@@ -92,6 +92,7 @@ ShellLevel2CommandsLibConstructor (
   ShellCommandRegisterCommandName (L"rm", ShellCommandRunRm, ShellCommandGetManFileNameLevel2, 2, L"", TRUE, gShellLevel2HiiHandle, STRING_TOKEN (STR_GET_HELP_RM));
   ShellCommandRegisterCommandName (L"vol", ShellCommandRunVol, ShellCommandGetManFileNameLevel2, 2, L"", TRUE, gShellLevel2HiiHandle, STRING_TOKEN (STR_GET_HELP_VOL));
 
+  ShellCommandRegisterCommandName (L"fs_test", ShellCommandRunFsTest, ShellCommandGetManFileNameLevel2, 2, L"", TRUE, gShellLevel2HiiHandle, STRING_TOKEN (STR_GET_HELP_CP));
   //
   // support for permanent (built in) aliases
   //

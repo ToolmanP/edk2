@@ -201,6 +201,13 @@ ShellCommandRunCp (
   IN EFI_SYSTEM_TABLE  *SystemTable
   );
 
+
+SHELL_STATUS
+EFIAPI
+ShellCommandRunFsTest(IN EFI_HANDLE ImageHandle,
+                      IN EFI_SYSTEM_TABLE *SystemTable);
+
+
 /**
   Function for 'parse' command.
 

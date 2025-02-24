@@ -689,7 +689,6 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
       *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
     } else {
       if (Param->PointerLevel > 1 && Param->OutParam) {
-
         PhysDst =
             (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
 
@@ -703,12 +702,10 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
           else
             Size = ArraySize * Param->ParamType->CustomType->TypeSize;
         }
-
         PhysSrc = AllocateSandboxMemory(CallerSandbox, Size);
         CopyMem(PhysSrc, PhysDst, Size);
         *(VOID **)TO_PHYS_ADDR(Src[Index]) =
             (VOID *)TO_VIRT_ADDR((UINTN)PhysSrc);
-
       }
     }
 

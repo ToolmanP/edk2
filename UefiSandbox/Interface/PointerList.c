@@ -32,8 +32,7 @@ EFI_STATUS InsertPointerRecordList(IN POINTER_LIST *PointerList,
   Entry->Syncable = Syncable;
   InsertHeadList(&PointerList->Head, &Entry->NextLink);
 
-  if (PointerList->SrcSandbox != NULL &&
-      PointerList->SrcSandbox != &CoreSandbox)
+  if (PointerList->SrcSandbox != NULL && PointerList->SrcSandbox != &CoreSandbox)
     return ValidateVMRegion(PointerList->SrcSandbox, Src, Size);
   else
     return EFI_SUCCESS;

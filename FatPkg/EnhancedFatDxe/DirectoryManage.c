@@ -1078,7 +1078,7 @@ FatCreateDirEnt (
   FatAddDirEnt (ODir, DirEnt);
   DirEnt->Entry.Attributes = Attributes;
   *PtrDirEnt               = DirEnt;
-  DEBUG ((DEBUG_INFO, "FSOpen: Created new directory entry '%S'\n", DirEnt->FileString));
+  DEBUG ((DEBUG_VERBOSE, "FSOpen: Created new directory entry '%S'\n", DirEnt->FileString));
   return FatStoreDirEnt (OFile, DirEnt);
 
 Done:

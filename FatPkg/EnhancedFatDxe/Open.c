@@ -172,7 +172,7 @@ FatOFileOpen (
 
   (*NewIFile)->ReadOnly = (BOOLEAN) !WriteMode;
 
-  DEBUG ((DEBUG_INFO, "FSOpen: Open '%S' %r\n", FileName, Status));
+  DEBUG ((DEBUG_VERBOSE, "FSOpen: Open '%S' %r\n", FileName, Status));
   return FatOFileFlush (OFile);
 }
 

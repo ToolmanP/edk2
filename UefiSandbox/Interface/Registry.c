@@ -357,6 +357,8 @@ EFI_STATUS LocateSandboxInterface(IN UEFI_SANDBOX *Sandbox,
     }
   }
 
+  Located = AllocatePool(sizeof(*Located));
+
 repeat:
   BASE_LIST_FOR_EACH(Link, &mInstalledInterfaceCollectionRegistry) {
     CollectionCursor = BASE_CR(Link, INTERFACE_REGISTRY_COLLECTION, ListNode);
@@ -365,8 +367,6 @@ repeat:
       break;
     }
   }
-
-  Located = AllocatePool(sizeof(*Located));
 
   if (Collection) {
     FindInstalledSandboxInterfaceUnique(Sandbox, Handle, Collection, &Entry);
@@ -426,28 +426,42 @@ EFI_STATUS OpenSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
   if (EFI_ERROR(Status))
     return Status;
 
+  if (Attributes & EFI_OPEN_PROTOCOL_EXCLUSIVE)
+    ASSERT(0);
+
   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
     LocCursor = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);
+
     if (CompareGuid(LocCursor->ID, ProtocolID) &&
         Handle == LocCursor->Sandboxed->Handle) {
 
-      if (LocCursor->Used)
-        continue;
+      if (Attributes == EFI_OPEN_PROTOCOL_TEST_PROTOCOL)
+        return EFI_SUCCESS;
 
-      if (Attributes & EFI_OPEN_PROTOCOL_EXCLUSIVE) {
-        if (LocCursor->Sandboxed->OpenCount != 0) {
+      if (Attributes & EFI_OPEN_PROTOCOL_BY_DRIVER) {
+
+        if (LocCursor->Used)
+          return EFI_ALREADY_STARTED;
+
+        if (LocCursor->Sandboxed->OpenCount > 1) {
           return EFI_ACCESS_DENIED;
         }
       }
 
-      if (Attributes == EFI_OPEN_PROTOCOL_TEST_PROTOCOL)
-        return EFI_SUCCESS;
+      Status = gBS->OpenProtocol(Handle, ProtocolID, &Opaque, AgentHandle,
+                    ControllerHandle, Attributes);
+
+      if(Status == EFI_ACCESS_DENIED) {
+        return Status;
+      }
 
       LocCursor->Used = TRUE;
       *LocatedInterface = LocCursor;
       return EFI_SUCCESS;
     }
   }
+
+  Located = AllocatePool(sizeof(*Located));
 
 repeat:
   BASE_LIST_FOR_EACH(Link, &mInstalledInterfaceCollectionRegistry) {
@@ -458,13 +472,19 @@ repeat:
     }
   }
 
-  Located = AllocatePool(sizeof(*Located));
-
   if (Collection) {
     FindInstalledSandboxInterfaceUnique(Sandbox, Handle, Collection, &Entry);
     if (Entry) {
+
       if (Attributes == EFI_OPEN_PROTOCOL_TEST_PROTOCOL)
         return EFI_SUCCESS;
+
+      if (Attributes & EFI_OPEN_PROTOCOL_BY_DRIVER) {
+        if (Entry->Sandboxed.OpenCount > 1) {
+          return EFI_ACCESS_DENIED;
+        }
+      }
+
       InitLocatedSandboxInterface(Sandbox, Located, ProtocolID,
                                   &Entry->Sandboxed, AgentHandle,
                                   ControllerHandle, Attributes, FALSE);
@@ -486,18 +506,11 @@ repeat:
     goto repeat;
   }
 
-  if (Attributes & EFI_OPEN_PROTOCOL_EXCLUSIVE) {
-    if (Entry->Sandboxed.OpenCount != 0) {
-      return EFI_ACCESS_DENIED;
-    }
-  }
-
   Located->Used = TRUE;
   Located->Sandboxed->OpenCount += 1;
   *LocatedInterface = Located;
 
   InsertTailList(&Sandbox->LocatedInterfaces, &Located->SandboxNode);
-
   InsertTailList(&Located->Sandboxed->LocatedList, &Located->RegistryNode);
   return EFI_SUCCESS;
 }
@@ -515,7 +528,8 @@ CloseSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
     Located = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);
 
-    if (Located->ID == ProtocolID && Located->Sandboxed->Handle == Handle) {
+    if (CompareGuid(Located->ID, ProtocolID) &&
+        Located->Sandboxed->Handle == Handle) {
       if (!(Located->Attributes & EFI_OPEN_PROTOCOL_BY_DRIVER)) {
         Located->Sandboxed->OpenCount -= 1;
         Located->Used = FALSE;
