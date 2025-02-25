@@ -21,6 +21,9 @@
 #include <Library/DebugLib.h>
 #include <Library/HobLib.h>
 #include "ArmMmuLibInternal.h"
+#include "Chipset/AArch64Mmu.h"
+#include "ProcessorBind.h"
+#include "Uefi/UefiBaseType.h"
 
 STATIC  ARM_REPLACE_LIVE_TRANSLATION_ENTRY  mReplaceLiveEntryFunc = ArmReplaceLiveTranslationEntry;
 
@@ -272,6 +275,7 @@ UpdateRegionMappingRecursive (
         // No table entry exists yet, so we need to allocate a page table
         // for the next level.
         //
+        DebugPrint(DEBUG_INFO, "Allocating page table for level %d\n", Level);
         TranslationTable = AllocatePages (1);
         if (TranslationTable == NULL) {
           return EFI_OUT_OF_RESOURCES;
@@ -386,6 +390,8 @@ UpdateRegionMapping (
   }
 
   T0SZ = ArmGetTCR () & TCR_T0SZ_MASK;
+
+  DebugPrint(DEBUG_VERBOSE, "UpdateRegionMapping(%16lx, %10lx, %16lx)\n", RegionStart, RegionLength, AttributeSetMask);
 
   return UpdateRegionMappingRecursive (
            RegionStart,
@@ -573,11 +579,18 @@ ArmConfigureMmu (
   // into account the architectural limitations that result from UEFI's
   // use of 4 KB pages.
   //
-  MaxAddressBits = MIN (ArmGetPhysicalAddressBits (), MAX_VA_BITS);
+  // MaxAddressBits = MIN (ArmGetPhysicalAddressBits (), MAX_VA_BITS);
+
+  /*
+   * Just use MAX_VA_BITS
+   */
+  MaxAddressBits = MAX_VA_BITS;
   MaxAddress     = LShiftU64 (1ULL, MaxAddressBits) - 1;
 
   T0SZ                = 64 - MaxAddressBits;
   RootTableEntryCount = GetRootTableEntryCount (T0SZ);
+  DebugPrint(DEBUG_INFO, "T0SZ: %ld, RootTableEntryCount: %ld\n", T0SZ, RootTableEntryCount);
+  DebugPrint(DEBUG_INFO, "CurrentEL: 0x%ld\n", ArmReadCurrentEL());
 
   //
   // Set TCR that allows us to retrieve T0SZ in the subsequent functions

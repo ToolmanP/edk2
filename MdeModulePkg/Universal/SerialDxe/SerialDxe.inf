@@ -43,7 +43,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultReceiveFifoDepth ## CONSUMES
 
 [Depex]
-  TRUE
+  gEfiSandboxArchProtocolGuid
 
 [UserExtensions.TianoCore."ExtraFiles"]
   SerialDxeExtra.uni

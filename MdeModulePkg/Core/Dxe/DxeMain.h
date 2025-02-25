@@ -36,6 +36,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/Security2.h>
 #include <Protocol/Reset.h>
 #include <Protocol/Cpu.h>
+#include <Protocol/Sandbox.h>
 #include <Protocol/Metronome.h>
 #include <Protocol/FirmwareVolumeBlock.h>
 #include <Protocol/Capsule.h>
@@ -197,6 +198,8 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS                    ImageBasePage;
   /// Number of pages
   UINTN                                   NumberOfPages;
+  /// Sandbox ID
+  UINTN                                   SandboxID;
   /// Original fixup data
   CHAR8                                   *FixupData;
   /// Tpl of started image
@@ -249,6 +252,7 @@ extern EFI_SECURITY_ARCH_PROTOCOL        *gSecurity;
 extern EFI_SECURITY2_ARCH_PROTOCOL       *gSecurity2;
 extern EFI_BDS_ARCH_PROTOCOL             *gBds;
 extern EFI_SMM_BASE2_PROTOCOL            *gSmmBase2;
+extern EFI_SANDBOX_ARCH_PROTOCOL         *gSandbox;
 
 extern EFI_TPL  gEfiCurrentTpl;
 
@@ -264,6 +268,7 @@ extern BOOLEAN  gMemoryAttributesTableForwardCfi;
 
 extern EFI_LOAD_FIXED_ADDRESS_CONFIGURATION_TABLE  gLoadModuleAtFixAddressConfigurationTable;
 extern BOOLEAN                                     gLoadFixedAddressCodeMemoryReady;
+
 //
 // Service Initialization Functions
 //
@@ -1346,6 +1351,17 @@ CoreLoadImage (
   OUT EFI_HANDLE               *ImageHandle
   );
 
+EFI_STATUS
+EFIAPI
+CoreLoadImageInSandbox (
+  IN BOOLEAN                   BootPolicy,
+  IN EFI_HANDLE                ParentImageHandle,
+  IN EFI_DEVICE_PATH_PROTOCOL  *FilePath,
+  IN VOID                      *SourceBuffer   OPTIONAL,
+  IN UINTN                     SourceSize,
+  OUT EFI_HANDLE               *ImageHandle
+  );
+
 /**
   Unloads an image.
 
@@ -1386,6 +1402,15 @@ CoreUnloadImage (
 EFI_STATUS
 EFIAPI
 CoreStartImage (
+  IN EFI_HANDLE  ImageHandle,
+  OUT UINTN      *ExitDataSize,
+  OUT CHAR16     **ExitData  OPTIONAL
+  );
+
+
+EFI_STATUS
+EFIAPI
+CoreStartImageInSandbox (
   IN EFI_HANDLE  ImageHandle,
   OUT UINTN      *ExitDataSize,
   OUT CHAR16     **ExitData  OPTIONAL

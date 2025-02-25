@@ -242,6 +242,11 @@ CoreValidateHandle (
   IN  EFI_HANDLE  UserHandle
   );
 
+BOOLEAN
+IsDevicePathInstalled (
+  IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  );
+
 //
 // Externs
 //

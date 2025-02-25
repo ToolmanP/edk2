@@ -128,6 +128,7 @@
   GCC:*_*_AARCH64_CC_XIPFLAGS ==
 !endif
 
+
 !include NetworkPkg/NetworkBuildOptions.dsc.inc
 
 ################################################################################
@@ -580,6 +581,16 @@
   # ACPI Support
   #
   OvmfPkg/PlatformHasAcpiDtDxe/PlatformHasAcpiDtDxe.inf
+
+
+  MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf {
+    <LibraryClasses>
+      DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
+      JsonLib|RedfishPkg/Library/JsonLib/JsonLib.inf
+      Ucs2Utf8Lib|RedfishPkg/Library/BaseUcs2Utf8Lib/BaseUcs2Utf8Lib.inf
+      RedfishCrtLib|RedfishPkg/PrivateLibrary/RedfishCrtLib/RedfishCrtLib.inf
+  }
+
 [Components.AARCH64]
   MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
   OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf {

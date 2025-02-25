@@ -141,6 +141,27 @@ CoreInitializeEventServices (
   return EFI_SUCCESS;
 }
 
+STATIC VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context) {
+  IEVENT *IEvent;
+  UINTN SandboxID;
+  UINT32 Type;
+
+  IEvent = Event;
+  Type = IEvent->Type;
+  SandboxID = IEvent->SandboxID;
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
+
+  if(Type & EVT_RUNTIME) {
+    IEvent->RuntimeData.NotifyFunction(Event, Context);
+  } else {
+    IEvent->NotifyFunction(Event,Context);
+  }
+
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
+}
+
 /**
   Dispatches all pending events.
 
@@ -183,7 +204,7 @@ CoreDispatchEventNotifies (
     // Notify this event
     //
     ASSERT (Event->NotifyFunction != NULL);
-    Event->NotifyFunction (Event, Event->NotifyContext);
+    Notify(Event, Event->NotifyContext);
 
     //
     // Check for next pending event
@@ -456,6 +477,12 @@ CoreCreateEventInternal (
   IEvent->NotifyTpl      = NotifyTpl;
   IEvent->NotifyFunction = NotifyFunction;
   IEvent->NotifyContext  = (VOID *)NotifyContext;
+
+  if(gSandbox)
+    ASSERT_EFI_ERROR(gSandbox->GetCurrentSandboxID(gSandbox, &IEvent->SandboxID));
+  else
+    IEvent->SandboxID = 0;
+
   if (EventGroup != NULL) {
     CopyGuid (&IEvent->EventGroup, EventGroup);
     IEvent->ExFlag |= EVT_EXFLAG_EVENT_GROUP;
@@ -499,6 +526,8 @@ CoreCreateEventInternal (
   //
   return EFI_SUCCESS;
 }
+
+
 
 /**
   Signals the event.  Queues the event to be notified if needed.

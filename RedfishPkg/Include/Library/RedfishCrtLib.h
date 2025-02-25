@@ -26,6 +26,7 @@
 
 // We dont support double on edk2
 #define HUGE_VAL  0
+#define double UINTN
 
 #if defined (MDE_CPU_X64) || defined (MDE_CPU_AARCH64) || defined (MDE_CPU_RISCV64)
 //

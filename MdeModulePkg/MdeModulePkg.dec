@@ -169,6 +169,11 @@
   #
   ImagePropertiesRecordLib|Include/Library/ImagePropertiesRecordLib.h
 
+  ##  @libraryclass   SandboxInjectionLib provides services to inject sandbox syscalls into the system.
+  #
+  SandboxSyscallInjectionLib|Include/Library/SandboxSyscallInjectionLib.h
+  SandboxSyscallInjectionLib|Include/Library/SandboxSyscalls.h
+
 [Guids]
   ## MdeModule package token space guid
   # Include/Guid/MdeModulePkgTokenSpace.h

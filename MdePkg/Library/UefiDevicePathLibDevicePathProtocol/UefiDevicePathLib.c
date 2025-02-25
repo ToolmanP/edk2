@@ -57,7 +57,6 @@ DevicePathLibConstructor (
   )
 {
   EFI_STATUS  Status;
-
   Status = gBS->LocateProtocol (
                   &gEfiDevicePathUtilitiesProtocolGuid,
                   NULL,

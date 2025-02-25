@@ -31,7 +31,9 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include "Base.h"
 #include "DxeMain.h"
+#include "ProcessorBind.h"
 
 //
 // The Driver List contains one copy of every driver that has been discovered.
@@ -381,6 +383,76 @@ CoreTrust (
   return EFI_NOT_FOUND;
 }
 
+// TODO: Check if a driver should be sandboxed before CoreLoadImage
+const EFI_GUID SandboxDriverGuids[] = {
+#if defined(__x86_64__)
+  /* VirtioSerial */
+  {
+    0x23CACE14, 0xEBA4, 0x49F6, { 0x96, 0x81, 0xC6, 0x97, 0xFF, 0x0B, 0x64, 0x9E }
+  },
+  /*DiskIoDxe*/
+  {
+    0x6B38F7B4, 0xAD98, 0x40E9, { 0x90, 0x93, 0xAC, 0xA2, 0xB5, 0xA2, 0x53, 0xC4 }
+  },
+  /*VirtioBlockDxe*/
+  {
+    0x11D92DFB, 0x3CA9, 0x4F93, { 0xBA, 0x2E, 0x47, 0x80, 0xED, 0x3E, 0x03, 0xB5 }
+  },
+  /*TerminalDxe*/
+  {
+    0x9E863906, 0xA40F, 0x4875, { 0x97, 0x7F, 0x5B, 0x93, 0xFF, 0x23, 0x7F, 0xC6 }
+  },
+  /*FatDxe*/
+  {
+    0x961578FE, 0xB6B7, 0x44C3, { 0xAF, 0x35, 0x6B, 0xC7, 0x05, 0xCD, 0x2B, 0x1F }
+  },
+  /*EnglishDxe*/
+  {
+    0xCD3BAFB6, 0x50FB, 0x4fe8, { 0x8E, 0x4E, 0xAB, 0x74, 0xD2, 0xC1, 0xA6, 0x00 }
+  },
+  /*UdfDxe*/
+  // {
+  //   0x905f13b0, 0x8f91, 0x4b0a, { 0xbd, 0x76, 0xe1, 0xe7, 0x8f, 0x94, 0x22, 0xe4 }
+  // },
+  /*ScsiDisk*/
+  // {
+  //   0x0A66E322, 0x3740, 0x4cce, { 0xAD, 0x62, 0xBD, 0x17, 0x2C, 0xEC, 0xCA, 0x35 }
+  // },
+  /*ConSplitterDxe*/
+  // {
+  //   0x408edcec, 0xcf6d, 0x477c, { 0xa5, 0xa8, 0xb4, 0x84, 0x4e, 0x3d, 0xe2, 0x81 }
+  // },
+  /*GraphicsConsoleDxe*/
+  // {
+  //   0xCCCB0C28, 0x4B24, 0x11d5, { 0x9A, 0x5A, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D }
+  // },
+#elif defined (__aarch64__)
+  /* SerialDxe */
+  {
+    0x9A5163E7, 0x5C29, 0x453F, { 0x82, 0x5C, 0x83, 0x7A, 0x46, 0xA8, 0x1E, 0x15 }
+  },
+  /*DiskIoDxe*/
+  {
+      0x6B38F7B4, 0xAD98, 0x40E9, { 0x90, 0x93, 0xAC, 0xA2, 0xB5, 0xA2, 0x53, 0xC4 }
+  },
+    /*FatDxe*/
+  {
+    0x961578FE, 0xB6B7, 0x44C3, { 0xAF, 0x35, 0x6B, 0xC7, 0x05, 0xCD, 0x2B, 0x1F }
+  },
+#endif
+}
+;
+
+static BOOLEAN IsDriverSandboxed(EFI_GUID *DriverName) {
+  UINTN Index;
+  for (Index = 0; Index < sizeof(SandboxDriverGuids) / sizeof(EFI_GUID); Index++) {
+    if (CompareGuid(DriverName, &SandboxDriverGuids[Index])) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
 /**
   This is the main Dispatcher for DXE and it exits when there are no more
   drivers to run. Drain the mScheduledQueue and load and start a PE
@@ -450,15 +522,27 @@ CoreDispatcher (
       // skip the LoadImage
       //
       if ((DriverEntry->ImageHandle == NULL) && !DriverEntry->IsFvImage) {
-        DEBUG ((DEBUG_INFO, "Loading driver %g\n", &DriverEntry->FileName));
-        Status = CoreLoadImage (
-                   FALSE,
-                   gDxeCoreImageHandle,
-                   DriverEntry->FvFileDevicePath,
-                   NULL,
-                   0,
-                   &DriverEntry->ImageHandle
-                   );
+        if (IsDriverSandboxed(&DriverEntry->FileName)) {
+          DEBUG ((DEBUG_INFO, "Loading driver %g in Sandbox\n", &DriverEntry->FileName));
+          Status = CoreLoadImageInSandbox(
+                     FALSE,
+                     gDxeCoreImageHandle,
+                     DriverEntry->FvFileDevicePath,
+                     NULL,
+                     0,
+                     &DriverEntry->ImageHandle
+                     );
+        } else {
+          DEBUG ((DEBUG_INFO, "Loading driver %g\n", &DriverEntry->FileName));
+          Status = CoreLoadImage (
+                     FALSE,
+                     gDxeCoreImageHandle,
+                     DriverEntry->FvFileDevicePath,
+                     NULL,
+                     0,
+                     &DriverEntry->ImageHandle
+                     );
+        }
 
         //
         // Update the driver state to reflect that it's been loaded
@@ -515,7 +599,11 @@ CoreDispatcher (
           );
         ASSERT (DriverEntry->ImageHandle != NULL);
 
-        Status = CoreStartImage (DriverEntry->ImageHandle, NULL, NULL);
+        if (IsDriverSandboxed(&DriverEntry->FileName)) {
+          Status = CoreStartImageInSandbox (DriverEntry->ImageHandle, NULL, NULL);
+        } else {
+          Status = CoreStartImage (DriverEntry->ImageHandle, NULL, NULL);
+        }
 
         REPORT_STATUS_CODE_WITH_EXTENDED_DATA (
           EFI_PROGRESS_CODE,

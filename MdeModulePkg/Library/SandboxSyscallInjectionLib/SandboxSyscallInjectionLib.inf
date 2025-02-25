@@ -1,0 +1,24 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = SandboxSyscallInjectionLib
+  FILE_GUID                      = 54033d4f-989b-4871-a55c-1ee48d412d41
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = SandboxSyscallInjectionLib
+  CONSTRUCTOR                    = SandboxSyscallInjectionLibConstructor
+
+[Sources]
+  SandboxSyscallInjectionLib.c
+
+[Sources.AARCH64]
+  AArch64/Syscall.c
+
+[Sources.X64]
+  X64/Syscall.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  DebugLib

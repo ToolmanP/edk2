@@ -7,6 +7,9 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "DxeMain.h"
+#include "Base.h"
+#include "Library/BaseLib.h"
+#include "Library/DebugLib.h"
 
 //
 // DXE Core Global Variables for Protocols from PEI
@@ -23,6 +26,7 @@ EFI_METRONOME_ARCH_PROTOCOL       *gMetronome     = NULL;
 EFI_TIMER_ARCH_PROTOCOL           *gTimer         = NULL;
 EFI_BDS_ARCH_PROTOCOL             *gBds           = NULL;
 EFI_WATCHDOG_TIMER_ARCH_PROTOCOL  *gWatchdogTimer = NULL;
+EFI_SANDBOX_ARCH_PROTOCOL         *gSandbox       = NULL;
 
 //
 // DXE Core globals for optional protocol dependencies
@@ -243,6 +247,10 @@ DxeMain (
   EFI_VECTOR_HANDOFF_INFO       *VectorInfoList;
   EFI_VECTOR_HANDOFF_INFO       *VectorInfo;
   VOID                          *EntryPoint;
+
+#if defined (__x86_64__)
+  DebugPrint(DEBUG_ERROR, "DxeMain_TSC=%ld\n", AsmReadTsc());
+#endif
 
   //
   // Setup the default exception handlers
@@ -845,6 +853,9 @@ CoreExitBootServices (
   //
   gRuntime->AtRuntime = TRUE;
 
+#if defined (__x86_64__)
+  DebugPrint(DEBUG_ERROR, "ExitBootService_TSC=%lu\n", AsmReadTsc());
+#endif
   return Status;
 }
 

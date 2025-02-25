@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #ifndef __EVENT_H__
 #define __EVENT_H__
 
+#include "Protocol/Runtime.h"
 #define VALID_TPL(a)  ((a) <= TPL_HIGH_LEVEL)
 extern  UINTN  gEventPending;
 
@@ -58,6 +59,7 @@ typedef struct {
   ///
   EFI_RUNTIME_EVENT_ENTRY    RuntimeData;
   TIMER_EVENT_INFO           Timer;
+  UINTN SandboxID;
 } IEVENT;
 
 //

@@ -10,6 +10,9 @@ indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+[.git/rebase-merge/git-edit-todo]
+charset = utf-8
+
 [*.py]
 charset = utf-8
 indent_style = space
