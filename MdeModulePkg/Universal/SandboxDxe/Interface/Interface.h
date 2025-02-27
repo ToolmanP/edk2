@@ -66,6 +66,7 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS StackBase;
   /* Return Trampoline */
   VOID *ReturnTrampoline;
+  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
 } InterfaceContext;
 
 typedef InterfaceContext INTERFACE_CONTEXT;

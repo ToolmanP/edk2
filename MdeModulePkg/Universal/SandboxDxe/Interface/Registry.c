@@ -115,7 +115,7 @@ EFI_STATUS InstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
 
   return EFI_SUCCESS;
 err:
-  ASSERT(0);
+  __unreachable();
   return Status;
 }
 
@@ -149,7 +149,7 @@ STATIC EFI_STATUS
 FreeSandboxInterfaceEntry(IN INTERFACE_REGISTRY_ENTRY *Entry) {
 
   if (Entry->Sandboxed.RefCount != 0) {
-    ASSERT(0);
+    __unreachable();
   }
 
   /* Remove SANDBOX_INTERFACE from global list */
@@ -196,6 +196,7 @@ STATIC VOID InitLocatedSandboxInterface(
 
   REFLECT_PROTOCOL *Protocol;
   CONST VOID *Delegated;
+  EFI_STATUS Status;
 
   GetProtocol(ProtocolID, &Protocol);
   InitPointerRecordList(&Located->Magisk.PointerList, NULL, Sandbox);
@@ -209,8 +210,9 @@ STATIC VOID InitLocatedSandboxInterface(
   Located->ControllerHandle = ControllerHandle;
   Delegated = Located->Sandboxed->Opaque;
 
-  ASSERT(CreateInterfaceMagisk(Protocol, (const EFI_VIRTUAL_ADDRESS)Delegated,
-                               ForCore, &Located->Magisk) == EFI_SUCCESS);
+  Status = CreateInterfaceMagisk(Protocol, (const EFI_VIRTUAL_ADDRESS)Delegated,
+                               ForCore, &Located->Magisk);
+  ASSERT_EFI_ERROR(Status);
 }
 
 VOID FreeLocatedSandboxInterface(IN LOCATED_INTERFACE *Located) {
@@ -423,7 +425,7 @@ EFI_STATUS OpenSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
     return Status;
 
   if (Attributes & EFI_OPEN_PROTOCOL_EXCLUSIVE)
-    ASSERT(0);
+    __unimplemented();
 
   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
     LocCursor = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);

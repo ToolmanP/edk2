@@ -89,24 +89,24 @@
 ASM_FUNC(DoSyscall)
 
   stp x29, x30, [sp, #-0x10]!
-  stp x0, x1, [sp, #-0x10]!
+  stp x19, x20, [sp, #-0x10]!
 
-  mov x14, x0
-  mov x15, x1
-  ldp	x0, x1, [x14, #16 * 0]
-  ldp	x2, x3, [x14, #16 * 1]
-  ldp	x4, x5, [x14, #16 * 2]
-  ldp	x6, x7, [x14, #16 * 3]
+  mov x19, x0
+  mov x20, x1
 
-  ldr	x8, [x14, #16 * 4]
-  ldr	x8, [x15, x8, lsl #3]		// find the syscall entry
+  ldp	x0, x1, [x19, #16 * 0]
+  ldp	x2, x3, [x19, #16 * 1]
+  ldp	x4, x5, [x19, #16 * 2]
+  ldp	x6, x7, [x19, #16 * 3]
+
+  ldr	x8, [x19, #16 * 4]
+  ldr	x8, [x20, x8, lsl #3]		// find the syscall entry
 
   blr	x8
+  str x0, [x19, #16 * 0]
 
-  mov x14, x0
-  ldp x0, x1, [sp], #16
-  str x14, [x0, #16 * 0]
-  ldp x29, x30, [sp], #16
+  ldp x19, x20, [sp], #0x10
+  ldp x29, x30, [sp], #0x10
   ret
 
 

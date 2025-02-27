@@ -7,24 +7,26 @@
 
 UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
                                         BOOLEAN TplRaise) {
-  EFI_TPL Tpl;
   UEFI_SANDBOX *PrevSandbox;
+  EFI_TPL Tpl;
 
   if (CurrentSandbox == Sandbox)
     return Sandbox;
 
-  if (TplRaise) {
+  if(TplRaise)
     Tpl = gBS->RaiseTPL(TPL_HIGH_LEVEL);
-  }
+  else
+    DisableInterrupts();
 
   PrevSandbox = CurrentSandbox;
   CurrentSandbox = Sandbox;
 
   SetPageTable((VOID *)Sandbox->TranslationTable);
 
-  if (TplRaise) {
-    gBS->RestoreTPL(Tpl); // what would happen if event is notified here.?
-  }
+  if(TplRaise)
+    gBS->RestoreTPL(Tpl);
+  else
+    EnableInterrupts();
 
   return PrevSandbox;
 }

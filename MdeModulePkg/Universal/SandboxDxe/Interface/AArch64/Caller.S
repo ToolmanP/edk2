@@ -7,19 +7,19 @@
 // Callee saved registers: x19-x29, x30
 ASM_FUNC(CallCoreFunc)
     stp x29, x30, [sp, #-0x10]!
-    stp x15, x16, [sp, #-0x10]!
+    stp x19, x20, [sp, #-0x10]!
 
-    mov x15, x0
-    mov x16, x1
+    mov x19, x0
+    mov x20, x1
 
-    ldp x0, x1, [x15]
-    ldp x2, x3, [x15, #0x10]
-    ldp x4, x5, [x15, #0x20]
-    ldp x6, x7, [x15, #0x30]
+    ldp x0, x1, [x19]
+    ldp x2, x3, [x19, #0x10]
+    ldp x4, x5, [x19, #0x20]
+    ldp x6, x7, [x19, #0x30]
 
-    blr x16
+    blr x20
 
-    ldp x15, x16, [sp], #0x10
+    ldp x19, x20, [sp], #0x10
     ldp x29, x30, [sp], #0x10
     ret
 

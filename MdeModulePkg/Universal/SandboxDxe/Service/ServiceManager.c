@@ -156,12 +156,12 @@ SandboxInstallProtocolInterface(IN OUT EFI_HANDLE *Handle,
   if (EFI_ERROR(Status))
     goto err_out;
 
-  ASSERT(ScheduleToSandboxInternal(CallerSandbox, TRUE) == &CoreSandbox);
+  ScheduleToSandboxInternal(CallerSandbox, TRUE);
 
   return Status;
 
 err_out:
-  ASSERT(ScheduleToSandboxInternal(CallerSandbox, TRUE) == &CoreSandbox);
+  ScheduleToSandboxInternal(CallerSandbox, TRUE);
   Status =
       UninstallSandboxInterface(CurrentSandbox, ProtocolID, Handle, Interface);
   return Status;
@@ -448,14 +448,12 @@ out:
 EFI_STATUS
 SandboxInstallMultipleProtocolInterfaces(IN OUT EFI_HANDLE *Handle, ...) {
   __unimplemented();
-  ASSERT(FALSE);
   return EFI_UNSUPPORTED;
 }
 
 EFI_STATUS
 SandboxUninstallMultipleProtocolInterfaces(IN EFI_HANDLE Handle, ...) {
   __unimplemented();
-  ASSERT(FALSE);
   return EFI_UNSUPPORTED;
 }
 
@@ -662,7 +660,7 @@ SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
   CurrentCpuInfoIndex--;
 #endif
   LongJump(JumpBuffer, Status + 1);
-  ASSERT(0);
+  __unreachable();
   return EFI_SUCCESS;
 }
 

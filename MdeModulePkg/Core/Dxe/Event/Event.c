@@ -141,16 +141,20 @@ CoreInitializeEventServices (
   return EFI_SUCCESS;
 }
 
-STATIC VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context) {
+STATIC  VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context){
   IEVENT *IEvent;
-  UINTN SandboxID;
   UINT32 Type;
+  UINTN SandboxID;
+  EFI_STATUS Status;
 
   IEvent = Event;
   Type = IEvent->Type;
   SandboxID = IEvent->SandboxID;
-  if(gSandbox)
-    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
+
+  if(gSandbox){ // ? gSandbox got optimized
+    Status = gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE);
+    ASSERT_EFI_ERROR(Status);
+  }
 
   if(Type & EVT_RUNTIME) {
     IEvent->RuntimeData.NotifyFunction(Event, Context);
@@ -158,8 +162,10 @@ STATIC VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context) {
     IEvent->NotifyFunction(Event,Context);
   }
 
-  if(gSandbox)
-    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
+  if(gSandbox){
+    Status = gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE);
+    ASSERT_EFI_ERROR(Status);
+  }
 }
 
 /**

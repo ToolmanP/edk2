@@ -142,10 +142,10 @@ InitAndMapSandboxSystemTable(IN OUT UEFI_SANDBOX *Sandbox,
                        (EFI_PHYSICAL_ADDRESS)BufferBase, BufferSize,
                        VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
 
-  ASSERT(!EFI_ERROR(Status));
+  ASSERT_EFI_ERROR(Status);
 
   Status = MapSandboxHOBList(Sandbox, SandboxSystemTable, srcST);
-  ASSERT(!EFI_ERROR(Status));
+  ASSERT_EFI_ERROR(Status);
 
   SetSystemTableProtocolInterface(Sandbox, SandboxSystemTable, srcST);
 

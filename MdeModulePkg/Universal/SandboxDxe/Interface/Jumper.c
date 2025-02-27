@@ -46,7 +46,7 @@ EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
       *(EFI_PHYSICAL_ADDRESS *)(TO_PHYS_ADDR((EFI_VIRTUAL_ADDRESS)
                                                  Located->Sandboxed->Opaque) +
                                 Offset));
-  ASSERT(&CoreSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
+  ScheduleToSandboxInternal(CallerSandbox, TRUE);
   return Status;
 }
 
@@ -59,26 +59,26 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
                              IN CONST LOCATED_INTERFACE *Located,
                              IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
 
-  UEFI_SANDBOX *CallerSandbox;
   INTERFACE_CONTEXT Context;
   UINTN SetJumpFlag;
 
-  CallerSandbox = CurrentSandbox;
+  Context.CallerSandbox = CurrentSandbox;
+  Context.CalleeSandbox = CalleeSandbox;
 
   if (CalleeSandbox == NULL)
     __unreachable("Invalid sandbox\n");
 
   /* Allocate stack */
-  struct SandboxPages *sbPages =
-      AllocateSandboxPages(CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
-                           DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
+  struct SandboxPages *sbPages = AllocateSandboxPages(
+      Context.CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
+      DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
 
   Context.JumpBuffer = AllocatePool(sizeof(BASE_LIBRARY_JUMP_BUFFER) +
                                     BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
   Context.JumpContext =
       ALIGN_POINTER(Context.JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
-  Context.ReturnTrampoline =
-      CreateSandboxReturnTrampoline(CalleeSandbox, (UINT64)Context.JumpContext);
+  Context.ReturnTrampoline = CreateSandboxReturnTrampoline(
+      Context.CalleeSandbox, (UINT64)Context.JumpContext);
 
   if (Context.StackBase == 0)
     __unreachable("Failed to allocate stack for sandbox function\n");
@@ -99,27 +99,20 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.LR =
         TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
     Context.EntryParams.ELR = *(UINTN *)(Located->Sandboxed->Opaque + Offset);
-    if (Context.EntryParams.ELR == 0)
-      while (1)
-        ;
-    if (!IS_VIRT_ADDR(Context.EntryParams.ELR)) {
-      while (1)
-        ;
-    }
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
 #endif
-    ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
+    ScheduleToSandboxInternal(Context.CalleeSandbox, TRUE);
     CallSandboxFunc(&Context.EntryParams);
     __unreachable("Should not reach here\n");
   }
 
-  ASSERT(CalleeSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
-  FreeSandboxPages(CalleeSandbox, Context.StackBase,
+  ScheduleToSandboxInternal(Context.CallerSandbox, TRUE);
+  FreeSandboxPages(Context.CalleeSandbox, Context.StackBase,
                    DEFAULT_STACK_SIZE / PAGE_SIZE, sbPages);
   FreePool(Context.JumpBuffer);
-  FreeSandboxPool(CalleeSandbox,
+  FreeSandboxPool(Context.CalleeSandbox,
                   (EFI_PHYSICAL_ADDRESS)Context.ReturnTrampoline);
   return SetJumpFlag - 1;
 }

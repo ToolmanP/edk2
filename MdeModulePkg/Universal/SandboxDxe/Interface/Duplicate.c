@@ -403,7 +403,7 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
       Status = EagerDuplicateTypePointer(Ctx, Src, Dst);
       break;
     default:
-      ASSERT(FALSE);
+      __unreachable();
     }
   }
 out:
@@ -635,7 +635,7 @@ out:
   return Status;
 }
 
-STATIC EFI_STATUS AllocatePersistentLocatedInterface(
+EFI_STATUS AllocatePersistentLocatedInterface(
     IN UEFI_SANDBOX *CallerSandbox, IN UEFI_SANDBOX *CalleeSandbox,
     IN REFLECT_PROTOCOL *Protocol, IN CONST EFI_VIRTUAL_ADDRESS Delegated,
     OUT LOCATED_INTERFACE **Located) {
@@ -674,6 +674,7 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
   LIST_ENTRY *Link;
   UINTN ArraySize, Size, Index;
   VOID *PhysSrc, *PhysDst;
+  EFI_STATUS Status;
   Index = 0;
 
   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
@@ -681,9 +682,10 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
     if (Param->ParamType->Kind == ProtocolKind && Param->OutParam) {
       ASSERT(Param->PointerLevel == 2);
       ASSERT(Param->ParamType->Kind = ProtocolKind);
-      ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
+      Status = AllocatePersistentLocatedInterface(
           CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
-          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
+          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located);
+      ASSERT_EFI_ERROR(Status);
       *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
     } else {
       if (Param->PointerLevel > 1 && Param->OutParam) {

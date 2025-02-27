@@ -111,7 +111,7 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   }
 
   /* TODO: can we map FV region directly? */
-  // FIXME: shoule be readonly?
+  // FIXME: shoule bd readonly?
   /*
    * Map the FV region as normal executable memory
    */
@@ -136,13 +136,13 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
                           KERNEL_SYSTEM_DRAM_BASE,
                           KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE,
                           VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
-  ASSERT(!EFI_ERROR(Status));
+  ASSERT_EFI_ERROR(Status);
 #endif
 
   Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(Sandbox->Context.StackBase),
                        (EFI_PHYSICAL_ADDRESS)Sandbox->Context.StackBase,
                        DEFAULT_STACK_SIZE, VMR_READ | VMR_WRITE, FALSE);
-  ASSERT(!EFI_ERROR(Status));
+  ASSERT_EFI_ERROR(Status);
 
   /*
    * Map image in sandbox page table
@@ -151,7 +151,7 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
                        (EFI_PHYSICAL_ADDRESS)ImageData.Info.ImageBase,
                        ImageData.Info.ImageSize,
                        VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
-  ASSERT(!EFI_ERROR(Status));
+  ASSERT_EFI_ERROR(Status);
 
   Sandbox->ImageData = ImageData;
 
@@ -234,7 +234,7 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
     Context.R9 = (EFI_PHYSICAL_ADDRESS)Handle;
     Context.Rax = (EFI_VIRTUAL_ADDRESS)Sandbox->ImageData.Info.SystemTable;
 
-    ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
+    ScheduleToSandboxInternal(Sandbox, TRUE);
 
     SBDebug("Starting Sandbox %d, PageTable: 0x%lx\n, ImageHandle: 0x%lx, "
             "SystemTable: 0x%lx\n",
@@ -262,13 +262,12 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
                                 KERNEL_SYSTEM_DRAM_BASE +
                                     KERNEL_SYSTEM_DRAM_SIZE);
 
-    ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
-
+    ScheduleToSandboxInternal(Sandbox, TRUE);
     EretToSandbox(&Context);
 #endif
   }
 
-  ASSERT(Sandbox == ScheduleToSandboxInternal(&CoreSandbox, TRUE));
+  ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
   ZeroMem((VOID *)Sandbox->Context.StackBase, DEFAULT_STACK_SIZE);
   FreePool(Sandbox->JumpBuffer);
@@ -334,7 +333,6 @@ ScheduleToSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, IN OUT UINTN *SandboxID,
   } else {
     Sandbox = FindSandbox(*SandboxID);
     if (Sandbox == NULL) {
-      SBError("Sandbox %d not found\n", *SandboxID);
       return EFI_NOT_FOUND;
     }
   }
@@ -376,8 +374,7 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
    */
   Status = InitProtocolDB();
   if (EFI_ERROR(Status)) {
-    SBError("Fail to initialize protocol database\n");
-    ASSERT(FALSE);
+    __unreachable("Fail to initialize protocol database\n");
   }
 
 #if ProtocolDBTest
@@ -386,21 +383,21 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
   Status = GetProtocol(&Guid1, &Protocol);
   if (EFI_ERROR(Status)) {
     SBError("Fail to get SerialIo protocol\n");
-    ASSERT(FALSE);
+    __unreachable();
   }
 
   EFI_GUID Guid2 = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
   Status = GetProtocol(&Guid2, &Protocol);
   if (EFI_ERROR(Status)) {
     SBError("Fail to get SimpleFileSystem protocol\n");
-    ASSERT(FALSE);
+    __unreachable();
   }
 
   EFI_GUID Guid3 = EFI_DISK_IO_PROTOCOL_GUID;
   Status = GetProtocol(&Guid3, &Protocol);
   if (EFI_ERROR(Status)) {
     SBError("Fail to get DiskIo protocol\n");
-    ASSERT(FALSE);
+    __unreachable();
   }
 
   SBDebug("Pass Protocol Analyze Test\n");
@@ -414,10 +411,9 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
          CoreTranslationTableBase));
 
   Status = InitCorePageTable(&CoreTranslationTableBase);
-  if (EFI_ERROR(Status)) {
-    SBError("Fail to initialize core page table\n");
-    return Status;
-  }
+
+  if (EFI_ERROR(Status))
+    __unreachable("Fail to initialize core page table\n");
 
   /* Initial IdleSandbox */
   CoreSandbox.SandboxID = GetNextSandBoxID();

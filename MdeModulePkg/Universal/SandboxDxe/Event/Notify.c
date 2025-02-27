@@ -51,7 +51,7 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
     Params.ELR = (UINT64)IEvent->NotifyFunction;
 #endif
     CallSandboxFunc(&Params);
-    ASSERT(0);
+    __unreachable();
   }
 
   FreeSandboxPool(CurrentSandbox, (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
