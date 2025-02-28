@@ -158,14 +158,14 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   /*
    * Initialize the sandbox system table
    */
+
+  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
+  InitSandboxMallocManager(Sandbox->MallocManager);
   Status = InitAndMapSandboxSystemTable(Sandbox, ImageData.Info.SystemTable);
   if (EFI_ERROR(Status)) {
     SBError("Fail to initialize sandbox system table\n");
     goto free_stack;
   }
-
-  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
-  InitSandboxMallocManager(Sandbox->MallocManager);
 
   InitializeListHead(&Sandbox->LocatedInterfaces);
   InitializeListHead(&Sandbox->InstalledInterfaces);

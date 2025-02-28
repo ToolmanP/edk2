@@ -505,8 +505,8 @@ SetSandboxSystemTable(IN EFI_SYSTEM_TABLE *SystemTable) {
   SystemTable->BootServices->SignalEvent = mSignalEvent;
   SystemTable->BootServices->CloseEvent = mCloseEvent;
   SystemTable->BootServices->CheckEvent = mCheckEvent;
-  SystemTable->BootServices->InstallProtocolInterface =
-      mInstallProtocolInterface;
+  // SystemTable->BootServices->InstallProtocolInterface =
+  //     mInstallProtocolInterface;
   SystemTable->BootServices->ReinstallProtocolInterface =
       mReinstallProtocolInterface;
   SystemTable->BootServices->UninstallProtocolInterface =
@@ -533,10 +533,10 @@ SetSandboxSystemTable(IN EFI_SYSTEM_TABLE *SystemTable) {
   SystemTable->BootServices->ProtocolsPerHandle = mProtocolsPerHandle;
   SystemTable->BootServices->LocateHandleBuffer = mLocateHandleBuffer;
   SystemTable->BootServices->LocateProtocol = mLocateProtocol;
-  SystemTable->BootServices->InstallMultipleProtocolInterfaces =
-      mInstallMultipleProtocolInterfaces;
-  SystemTable->BootServices->UninstallMultipleProtocolInterfaces =
-      mUninstallMultipleProtocolInterfaces;
+  // SystemTable->BootServices->InstallMultipleProtocolInterfaces =
+  //     mInstallMultipleProtocolInterfaces;
+  // SystemTable->BootServices->UninstallMultipleProtocolInterfaces =
+  //     mUninstallMultipleProtocolInterfaces;
   SystemTable->BootServices->CalculateCrc32 = mCalculateCrc32;
   SystemTable->BootServices->CopyMem = mCopyMem;
   SystemTable->BootServices->SetMem = mSetMem;

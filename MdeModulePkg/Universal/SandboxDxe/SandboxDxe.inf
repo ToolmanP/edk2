@@ -21,6 +21,10 @@
 
   SystemTable/SystemTable.h
   SystemTable/SystemTable.c
+  SystemTable/AsmBlob.h
+  SystemTable/Blob.h
+  SystemTable/GenericBlob.S
+  SystemTable/VaradicBlob.S
 
   Service/ServiceManager.c
 

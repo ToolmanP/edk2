@@ -6,8 +6,11 @@
 
 #include <Interface/Interface.h>
 #include <Interface/Registry.h>
+#include <Memory/Malloc.h>
 #include <Memory/Memory.h>
+#include <PageTable.h>
 #include <SandboxDxe.h>
+#include <SystemTable/Blob.h>
 #include <SystemTable/SystemTable.h>
 #include <Utils/Logger.h>
 
@@ -84,6 +87,30 @@ STATIC VOID SetSystemTableProtocolInterface(IN UEFI_SANDBOX *Sandbox,
     DstST->ConOut = NULL; // FIXME: Fix this src
   }
 
+  DstST->BootServices->InstallProtocolInterface =
+      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
+          Sandbox, C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE)));
+
+  CopyMem(DstST->BootServices->InstallProtocolInterface,
+          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE),
+          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE));
+
+  DstST->BootServices->InstallMultipleProtocolInterfaces =
+      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
+          Sandbox, C_SYS_BLOB_SIZE(
+                       SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
+
+  CopyMem(DstST->BootServices->InstallMultipleProtocolInterfaces,
+          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES),
+          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES));
+  DstST->BootServices->UninstallMultipleProtocolInterfaces =
+      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
+          Sandbox, C_SYS_BLOB_SIZE(
+                       SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
+  CopyMem(
+      DstST->BootServices->UninstallMultipleProtocolInterfaces,
+      C_SYS_BLOB_START(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES),
+      C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES));
   // TODO: other protocols
 }
 
