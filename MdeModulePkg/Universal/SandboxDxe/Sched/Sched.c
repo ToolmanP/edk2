@@ -21,7 +21,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
   PrevSandbox = CurrentSandbox;
   CurrentSandbox = Sandbox;
 
-  SetPageTable((VOID *)Sandbox->TranslationTable);
+  SetPageTable((VOID *)(Sandbox->TranslationTable | (Sandbox->SandboxID << 48)));
 
   if(TplRaise)
     gBS->RestoreTPL(Tpl);
