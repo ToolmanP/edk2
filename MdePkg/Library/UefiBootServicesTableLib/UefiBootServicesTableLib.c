@@ -10,7 +10,6 @@
 #include <Uefi.h>
 
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/SandboxSyscallInjectionLib.h>
 #include <Library/DebugLib.h>
 
 EFI_HANDLE         gImageHandle = NULL;
@@ -43,18 +42,6 @@ UefiBootServicesTableLibConstructor (
   //
   gImageHandle = ImageHandle;
   ASSERT (gImageHandle != NULL);
-
-#if defined(__x86_64__)
-  #define IS_VIRT_ADDR(addr) ((UINTN)addr >> 40 == 0x7f)
-#elif defined(__aarch64__)
-  #define IS_VIRT_ADDR(addr) ((UINTN)addr >> 40 == 0xff)
-#endif
-
-  if(IS_VIRT_ADDR(SystemTable)) {
-    SetSandboxSystemTable(SystemTable);
-  }
-
-  #undef IS_VIRT_ADDR
   //
   // Cache pointer to the EFI System Table
   //

@@ -76,44 +76,6 @@ MapSandboxHOBList(IN UEFI_SANDBOX *Sandbox, IN EFI_SYSTEM_TABLE *DstST,
   return Status;
 }
 
-STATIC VOID SetSystemTableProtocolInterface(IN UEFI_SANDBOX *Sandbox,
-                                            IN EFI_SYSTEM_TABLE *DstST,
-                                            IN EFI_SYSTEM_TABLE *SrcST) {
-  LOCATED_INTERFACE *Located;
-  Located = NULL;
-  UNUSED(Located);
-  /* ConOut*/
-  if (SrcST->ConOut != NULL) {
-    DstST->ConOut = NULL; // FIXME: Fix this src
-  }
-
-  DstST->BootServices->InstallProtocolInterface =
-      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
-          Sandbox, C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE)));
-
-  CopyMem(DstST->BootServices->InstallProtocolInterface,
-          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE),
-          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE));
-
-  DstST->BootServices->InstallMultipleProtocolInterfaces =
-      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
-          Sandbox, C_SYS_BLOB_SIZE(
-                       SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
-
-  CopyMem(DstST->BootServices->InstallMultipleProtocolInterfaces,
-          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES),
-          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES));
-  DstST->BootServices->UninstallMultipleProtocolInterfaces =
-      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
-          Sandbox, C_SYS_BLOB_SIZE(
-                       SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
-  CopyMem(
-      DstST->BootServices->UninstallMultipleProtocolInterfaces,
-      C_SYS_BLOB_START(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES),
-      C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES));
-  // TODO: other protocols
-}
-
 EFI_STATUS
 InitAndMapSandboxSystemTable(IN OUT UEFI_SANDBOX *Sandbox,
                              IN EFI_SYSTEM_TABLE *srcST) {
@@ -128,6 +90,16 @@ InitAndMapSandboxSystemTable(IN OUT UEFI_SANDBOX *Sandbox,
   BufferSize = ROUND_UP(BufferSize, PAGE_SIZE);
 
   BufferBase = AllocatePages(BufferSize / PAGE_SIZE);
+
+  /*
+   * Map the system table region as normal executable memory
+   */
+  Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(BufferBase),
+                       (EFI_PHYSICAL_ADDRESS)BufferBase, BufferSize,
+                       VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
+
+  ASSERT_EFI_ERROR(Status);
+
   if (BufferBase == NULL) {
     SBError("Fail to allocate buffer for sandbox system table\n");
     return EFI_OUT_OF_RESOURCES;
@@ -160,20 +132,8 @@ InitAndMapSandboxSystemTable(IN OUT UEFI_SANDBOX *Sandbox,
              &srcST->ConfigurationTable[i].VendorGuid);
   }
 
-  // TODO: Set other pointers
-
-  /*
-   * Map the system table region as normal executable memory
-   */
-  Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(BufferBase),
-                       (EFI_PHYSICAL_ADDRESS)BufferBase, BufferSize,
-                       VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
-
-  ASSERT_EFI_ERROR(Status);
-
   Status = MapSandboxHOBList(Sandbox, SandboxSystemTable, srcST);
   ASSERT_EFI_ERROR(Status);
-
   SetSystemTableProtocolInterface(Sandbox, SandboxSystemTable, srcST);
 
   /*

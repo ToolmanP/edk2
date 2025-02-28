@@ -110,6 +110,9 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
     goto free_sandbox;
   }
 
+  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
+  InitSandboxMallocManager(Sandbox->MallocManager);
+
   /* TODO: can we map FV region directly? */
   // FIXME: shoule bd readonly?
   /*
@@ -159,8 +162,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
    * Initialize the sandbox system table
    */
 
-  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
-  InitSandboxMallocManager(Sandbox->MallocManager);
   Status = InitAndMapSandboxSystemTable(Sandbox, ImageData.Info.SystemTable);
   if (EFI_ERROR(Status)) {
     SBError("Fail to initialize sandbox system table\n");
@@ -211,6 +212,7 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
     Status = EFI_OUT_OF_RESOURCES;
     return Status;
   }
+
   Sandbox->JumpContext =
       ALIGN_POINTER(Sandbox->JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
 

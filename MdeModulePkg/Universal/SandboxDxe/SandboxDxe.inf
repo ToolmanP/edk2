@@ -25,6 +25,7 @@
   SystemTable/Blob.h
   SystemTable/GenericBlob.S
   SystemTable/VaradicBlob.S
+  SystemTable/Injection.c
 
   Service/ServiceManager.c
 
