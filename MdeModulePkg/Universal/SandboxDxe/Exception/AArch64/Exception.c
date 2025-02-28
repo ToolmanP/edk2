@@ -3,6 +3,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/Cpu.h>
 
+#include <Decompiler/Decompiler.h>
 #include <Exception/Exception.h>
 #include <Interface/Jumper.h>
 #include <Interface/Registry.h>
@@ -201,6 +202,10 @@ STATIC VOID HandleSyncException(IN CONST EFI_EXCEPTION_TYPE InterruptType,
   case EXCEPTION_SYSTEM_CALL:
     HandleSyscall(SystemContext);
     break;
+  case EXCEPTION_SYSTEM_ERROR:
+    if (EFI_ERROR(mDecompiler.Resolve(SystemContext))) {
+      DefaultExceptionHandler(InterruptType, SystemContext);
+    }
   default:
     /* Assert */
     DefaultExceptionHandler(InterruptType, SystemContext);
