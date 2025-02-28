@@ -8,6 +8,7 @@
 
 CONST UINT64 ENTRY_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
 CONST UINT64 RETURN_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
+CONST UINT64 CALLBACK_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
 
 STATIC UINT32 TrampolinePrelude(IN UINT32 *Cursor) {
   STATIC CONST UINT32 Ins[] = {
@@ -116,9 +117,9 @@ STATIC UINT32 TrampolineMoveRegister(IN UINT32 *Cursor, IN CONST UINT32 Src,
 // A Transparent Trampoline SVC that is injects into the original interace call.
 // Token (Interface ID) -> Sandbox's Protocol Interface
 VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
-                                            IN CONST UINT64 Located,
-                                            IN CONST UINT64 Offset,
-                                            IN BOOLEAN ForCore) {
+                                          IN CONST UINT64 Located,
+                                          IN CONST UINT64 Offset,
+                                          IN BOOLEAN ForCore) {
   UINT32 Count;
   UINT32 *Trampoline;
   Count = 0;
@@ -136,8 +137,31 @@ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
   return Trampoline;
 }
 
+VOID *CreateCallbackTrampoline(IN UEFI_SANDBOX *Sandbox,
+                               IN CONST UINT64 ReflectFunc,
+                               IN CONST UINT64 CalleeID,
+                               IN CONST UINT64 FuncAddress) {
+
+  UINT32 Count;
+  UINT32 *Trampoline;
+  Count = 0;
+  Trampoline = AllocateSandboxCodeBuffer(Sandbox, ENTRY_TRAMPOLINE_SIZE);
+  Count += TrampolinePrelude(Trampoline + Count);
+  Count += TrampolinePreserveContext(Trampoline + Count);
+  Count += TrampolineMovImmediateReg(Trampoline + Count, ReflectFunc, 0);
+  Count += TrampolineMovImmediateReg(Trampoline + Count, CalleeID, 1);
+  Count += TrampolineMovImmediateReg(Trampoline + Count, FuncAddress, 2);
+  Count += TrampolineCopyStackPointer(Trampoline + Count, 3);
+  Count += TrampolineMovImmediateReg(Trampoline + Count,
+                                     SANDBOX_SYS_RT_SANDBOX_EXEC_CALLBACK, 8);
+  Count += TrampolineSVC(Trampoline + Count);
+  Count += TrampolineRestoreContext(Trampoline + Count);
+  Count += TrampolinePostlude(Trampoline + Count);
+  return Trampoline;
+}
+
 VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
-                                      IN CONST UINT64 JumpContext) {
+                                    IN CONST UINT64 JumpContext) {
   UINT32 Count;
   UINT32 *Trampoline;
   Count = 0;
@@ -148,6 +172,8 @@ VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
   Count += TrampolineMovImmediateReg(Trampoline + Count,
                                      SANDBOX_SYS_RT_SANDBOX_RETURN, 8);
   Count += TrampolineSVC(Trampoline + Count);
-  Count += TrampolinePostlude(Trampoline + Count); // FIXME: Psuedo Return Required by QEMU So that the boundary check is correct?
+  Count += TrampolinePostlude(Trampoline +
+                              Count); // FIXME: Psuedo Return Required by QEMU
+                                      // So that the boundary check is correct?
   return Trampoline;
 }

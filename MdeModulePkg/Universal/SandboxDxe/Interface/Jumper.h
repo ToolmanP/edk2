@@ -7,9 +7,10 @@
 typedef InterfaceContext INTERFACE_CONTEXT;
 
 EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
-                             IN CONST LOCATED_INTERFACE *Located,
-                             IN CONST UINT64 *Params, IN CONST UINT64 Offset);
-EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
-                          IN CONST UINT64 *Params, IN CONST UINT64 Offset);
+                             IN CONST UINT64 FuncAddress,
+                             IN CONST UINT64 *Params);
+
+EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
+                          IN CONST UINT64 *Params);
 
 #endif

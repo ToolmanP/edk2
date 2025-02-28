@@ -44,6 +44,7 @@
   Interface/Jumper.h
   Interface/Magisk.c
   Interface/Registry.c
+  Interface/Speculate.c
   Interface/Interface.h
   Interface/Duplicate.c
   Interface/Jumper.c

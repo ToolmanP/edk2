@@ -35,17 +35,13 @@ DumpInterfaceContext(INTERFACE_CONTEXT *Context) {
 #endif
 }
 
-EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
-                          IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
+EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
+                          IN CONST UINT64 *Params) {
   EFI_STATUS Status;
   UEFI_SANDBOX *CallerSandbox;
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
-  Status = CallCoreFunc(
-      Params,
-      *(EFI_PHYSICAL_ADDRESS *)(TO_PHYS_ADDR((EFI_VIRTUAL_ADDRESS)
-                                                 Located->Sandboxed->Opaque) +
-                                Offset));
+  Status = CallCoreFunc(Params, FuncAddress);
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
   return Status;
 }
@@ -56,8 +52,8 @@ EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
  * caller.
  */
 EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
-                             IN CONST LOCATED_INTERFACE *Located,
-                             IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
+                             IN CONST UINTN FuncAddress,
+                             IN CONST UINT64 *Params) {
 
   INTERFACE_CONTEXT Context;
   UINTN SetJumpFlag;
@@ -98,7 +94,7 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     CopyMem(&Context.EntryParams, Params, 8 * sizeof(UINT64));
     Context.EntryParams.LR =
         TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
-    Context.EntryParams.ELR = *(UINTN *)(Located->Sandboxed->Opaque + Offset);
+    Context.EntryParams.ELR = FuncAddress;
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);

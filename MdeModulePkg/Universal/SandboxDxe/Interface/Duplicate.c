@@ -2,6 +2,7 @@
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 
+#include <BinaryGen/BinaryGen.h>
 #include <Interface/Duplicate.h>
 #include <Interface/Interface.h>
 #include <Interface/PointerList.h>
@@ -14,99 +15,6 @@
 STATIC EFI_STATUS EagerDuplicateTypePointer(IN DUPLICATE_CTX *Ctx,
                                             IN CONST EFI_VIRTUAL_ADDRESS Src,
                                             OUT EFI_VIRTUAL_ADDRESS *Dst);
-
-STATIC BOOLEAN SpeculateSizeField(IN CONST CHAR8 *TargetName,
-                                  IN CONST CHAR8 *SizeName) {
-  UINTN FieldLen = AsciiStrLen(TargetName);
-  if (AsciiStrLen(SizeName) < FieldLen) {
-    return FALSE;
-  }
-
-  if (AsciiStrnCmp(TargetName, SizeName, FieldLen) != 0) {
-    return FALSE;
-  }
-
-  return AsciiStrCmp(SizeName + FieldLen, "Length") == 0 ||
-         AsciiStrCmp(SizeName + FieldLen, "Size") == 0 ||
-         AsciiStrCmp(SizeName + FieldLen, "Count") == 0;
-}
-
-UINT64 SpeculateTypeFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
-                                   IN CONST REFLECT_TYPE *Type,
-                                   CONST CHAR8 *FieldName) {
-  EFI_PHYSICAL_ADDRESS PhysTypeBase;
-  REFLECT_FIELD *Field;
-  LIST_ENTRY *Link;
-  UINT64 Size;
-
-  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
-  Size = 1;
-  BASE_LIST_FOR_EACH(Link, &Type->CustomType->Fields) {
-    Field = BASE_CR(Link, REFLECT_FIELD, FieldNode);
-    if (SpeculateSizeField(FieldName, Field->FieldName)) {
-      ASSERT(Field->FieldType->Kind == BasicTypeKind);
-      ASSERT(Field->FieldType->BasicType->TypeSize <= 8);
-      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
-              Field->FieldType->BasicType->TypeSize);
-      break;
-    }
-  }
-  return Size;
-}
-
-UINT64
-SpeculateProtocolFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
-                                IN CONST REFLECT_PROTOCOL *Protocol,
-                                CONST CHAR8 *FieldName) {
-  EFI_PHYSICAL_ADDRESS PhysTypeBase;
-  REFLECT_PROTOCOL_FIELD *Field;
-  LIST_ENTRY *Link;
-  UINT64 Size;
-
-  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
-  Size = 1;
-  BASE_LIST_FOR_EACH(Link, &Protocol->FieldsList) {
-    Field = BASE_CR(Link, REFLECT_PROTOCOL_FIELD, ProtocolFieldNode);
-    if (Field->IsFunction)
-      continue;
-    if (SpeculateSizeField(FieldName, Field->Variable->VariableName)) {
-      ASSERT(Field->Variable->VariableType->Kind == BasicTypeKind);
-      ASSERT(Field->Variable->VariableType->BasicType->TypeSize <= 8);
-      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
-              Field->Variable->VariableType->BasicType->TypeSize);
-      break;
-    }
-  }
-  return Size;
-}
-
-STATIC UINTN SpeculateFunctionParamArraySize(
-    IN CONST UINT64 *Params, IN CONST REFLECT_FUNC_TYPE *Function,
-    IN CONST REFLECT_PARAM *PointerParam) {
-  LIST_ENTRY *Link;
-  REFLECT_PARAM *Param;
-  UINT64 Size = 1;
-  UINTN Index = 0;
-  BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
-    Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
-    if (SpeculateSizeField(PointerParam->ParamName, Param->ParamName)) {
-      ASSERT(Param->ParamType->Kind == BasicTypeKind);
-      ASSERT(Param->ParamType->BasicType->TypeSize <= 8);
-      if (Param->PointerLevel != 0) {
-        ASSERT(Param->PointerLevel == 1);
-        CopyMem(&Size, (VOID *)Params[Index],
-                Param->ParamType->BasicType->TypeSize);
-      } else {
-
-        CopyMem(&Size, (VOID *)&(Params[Index]),
-                Param->ParamType->BasicType->TypeSize);
-      }
-      break;
-    }
-    Index++;
-  }
-  return Size;
-}
 
 EFI_STATUS EagerDuplicateCustomTypeField(
     IN DUPLICATE_CTX *Ctx, IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
@@ -414,8 +322,7 @@ STATIC EFI_STATUS CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
                                    IN CONST REFLECT_FUNC_TYPE *Function,
                                    IN CONST REFLECT_PARAM *Param,
                                    IN CONST UINT64 *Src, OUT UINT64 *Dst,
-                                   IN CONST UINT64 Index,
-                                   IN CONST BOOLEAN Alloc) {
+                                   IN CONST UINT64 Index) {
 
   EFI_VIRTUAL_ADDRESS NextVirtDst;
   EFI_PHYSICAL_ADDRESS NextPhysDst;
@@ -567,9 +474,9 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
                           Dst[Index], (UINT64)&Dst[Index], MemSize, FALSE);
 }
 
-EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
-                                   IN CONST REFLECT_FUNC_TYPE *Function,
-                                   IN CONST UINT64 *Src, OUT UINT64 *Dst) {
+EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+                             IN CONST REFLECT_FUNC_TYPE *Func,
+                             IN CONST UINT64 *Src, OUT UINT64 *Dst) {
   REFLECT_PARAM *Param;
   LIST_ENTRY *Link;
   UINTN Index;
@@ -582,9 +489,26 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
 
   Status = EFI_SUCCESS;
   Index = 0;
-  BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
+  BASE_LIST_FOR_EACH(Link, &Func->FunctionParams) {
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
     ASSERT(Param->OutParam || Param->InParam);
+
+    if (AsciiStrCmp(Param->ParamName, "Context") == 0) {
+      Dst[Index] = Src[Index];
+      continue;
+    }
+
+    if (AsciiStrStr(Param->ParamName, "CallBack") != NULL) {
+      ASSERT(Param->ParamType->Kind == FunctionKind);
+      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)CreateCallbackTrampoline(
+          Ctx->PointerList->SrcSandbox, (UINTN)Param->ParamType->Function,
+          Ctx->PointerList->DstSandbox->SandboxID, Src[Index]));
+      InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
+                              Dst[Index], (UINTN)&Src[Index], sizeof(UINTN),
+                              FALSE);
+      continue;
+    }
+
     if (Param->ParamType->Kind == ProtocolKind) {
       // Src[i] With Real Protocol Interface Counterpart find this protocol in
       // the protocol list;
@@ -602,6 +526,7 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
           goto out;
       }
     } else {
+
       if (Param->PointerLevel > 0) {
 
         if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
@@ -613,8 +538,7 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
                                   sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
         } else {
           Ctx->Syncable = Param->OutParam;
-          Status =
-              CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
+          Status = CopyOneCallParam(Ctx, Func, Param, Src, Dst, Index);
 
           if (EFI_ERROR(Status))
             goto out;
@@ -664,10 +588,10 @@ EFI_STATUS AllocatePersistentLocatedInterface(
                                &LocatedInterface->Magisk);
 }
 
-VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
-                             IN UEFI_SANDBOX *CalleeSandbox,
-                             IN CONST REFLECT_FUNC_TYPE *Function,
-                             IN CONST UINT64 *Dst, OUT UINT64 *Src) {
+VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
+                       IN UEFI_SANDBOX *CalleeSandbox,
+                       IN CONST REFLECT_FUNC_TYPE *Function,
+                       IN CONST UINT64 *Dst, OUT UINT64 *Src) {
 
   LOCATED_INTERFACE *Located;
   REFLECT_PARAM *Param;

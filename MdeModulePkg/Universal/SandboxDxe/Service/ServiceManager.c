@@ -582,6 +582,43 @@ SandboxQueryVariableInfo(IN UINT32 Attributes,
   __unimplemented();
 }
 
+EFI_STATUS SandboxFuncCallout(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+                              IN CONST REFLECT_FUNC_TYPE *Func,
+                              IN UINT64 FuncAddress,
+                              IN UINT64 *CallSiteParams) {
+  EFI_STATUS Status;
+  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
+  UINT64 Params[8];
+
+  CallerSandbox = Ctx->PointerList->SrcSandbox;
+  CalleeSandbox = Ctx->PointerList->DstSandbox;
+
+  Status = CopyCalloutParams(Ctx, Opaque, Func, CallSiteParams, Params);
+  if (EFI_ERROR(Status)) {
+    FreePointerRecordList(Ctx->PointerList, POINTER_SYNC_TYPE_NONE);
+    ScheduleToSandboxInternal(CallerSandbox, TRUE);
+    return Status;
+  }
+
+  if (CalleeSandbox == &CoreSandbox) {
+    PointerRecordSiteToPhys(Ctx->PointerList); // We should change the virtual
+                                               // address to physical address
+    Status = JumpToCoreFunc(FuncAddress, Params);
+  } else {
+    Status = JumpToSandboxFunc(CalleeSandbox, FuncAddress, Params);
+  }
+
+  // SyncInterfaceMagisk(&Located->Magisk);
+  if (!EFI_ERROR(Status))
+    SyncCalloutParams(CallerSandbox, CalleeSandbox, Func, Params,
+                      CallSiteParams);
+
+  FreePointerRecordList(Ctx->PointerList, POINTER_SYNC_DST_TO_SRC);
+  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+
+  return Status;
+}
+
 EFI_STATUS
 SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
                      IN UINT64 *CallSiteParams) {
@@ -591,7 +628,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
   POINTER_LIST PointerList;
   EFI_STATUS Status = EFI_SUCCESS;
   DUPLICATE_CTX Ctx;
-  UINT64 Params[8];
+  UINT64 FuncAddress;
 
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
 
@@ -611,38 +648,37 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
                         .Syncable = TRUE};
 
   Status = GetFunctionByOffset(Located->Desc, Offset, &Func);
-
   ASSERT_EFI_ERROR(Status);
 
-  Status = CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
-                                   CallSiteParams, Params);
-
-  if (EFI_ERROR(Status)) {
-    FreePointerRecordList(&PointerList, POINTER_SYNC_TYPE_NONE);
-    ScheduleToSandboxInternal(CallerSandbox, TRUE);
-    return Status;
-  }
-
-  if (CalleeSandbox == &CoreSandbox) {
-    PointerRecordSiteToPhys(&PointerList); // We should change the virtual
-                                           // address to physical address
-    Status = JumpToCoreFunc(Located, Params, Offset);
-  } else {
-    ASSERT(Offset < Located->Sandboxed->Desc->ProtocolSize);
-    Status = JumpToSandboxFunc(CalleeSandbox, Located, Params, Offset);
-  }
-
-  // SyncInterfaceMagisk(&Located->Magisk);
-  if (!EFI_ERROR(Status))
-    SyncInterfaceCallParams(CallerSandbox, CalleeSandbox, Func, Params,
-                            CallSiteParams);
-  FreePointerRecordList(&PointerList, POINTER_SYNC_DST_TO_SRC);
-  ScheduleToSandboxInternal(CallerSandbox, TRUE);
-
+  FuncAddress = *(UINTN *)TO_PHYS_ADDR(
+      (EFI_VIRTUAL_ADDRESS)(Located->Sandboxed->Opaque + Offset));
+  Status = SandboxFuncCallout(&Ctx, Located->Sandboxed->Opaque, Func,
+                              FuncAddress, CallSiteParams);
 #if SANDBOX_PERF_INTERFACE_CALL
   Val2 = ReadCounter();
   SBPrint("Perf Elapsed Counters : %lu\n", Val2 - Val1);
 #endif
+  return Status;
+}
+
+EFI_STATUS
+SandboxExecuteCallback(IN REFLECT_FUNC_TYPE *Func, IN UINTN CalleeID,
+                       IN UINTN FuncAddress, UINTN *CallSiteParams) {
+  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
+  POINTER_LIST PointerList;
+  DUPLICATE_CTX Ctx;
+  EFI_STATUS Status;
+
+  CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+  CalleeSandbox = (CalleeID == 0) ? &CoreSandbox : FindSandbox(CalleeID);
+  InitPointerRecordList(&PointerList, CallerSandbox, CalleeSandbox);
+
+  Ctx = (DUPLICATE_CTX){.PointerList = &PointerList,
+                        .CurrentType = NULL,
+                        .InUnion = FALSE,
+                        .Syncable = TRUE};
+  Status = SandboxFuncCallout(&Ctx, NULL, Func, FuncAddress, CallSiteParams);
+
   return Status;
 }
 
@@ -760,5 +796,6 @@ const VOID *SandboxServicesManager[NR_SYSCALL] = {
         SandboxQueryVariableInfo, // QueryVariableInfo
     [SANDBOX_SYS_RT_INTERFACE_CALL] = SandboxInterfaceCall,
     [SANDBOX_SYS_RT_SANDBOX_RETURN] = SandboxReturnFromSandbox,
+    [SANDBOX_SYS_RT_SANDBOX_EXEC_CALLBACK] = SandboxExecuteCallback,
     [SANDBOX_SYS_NULL... NR_SYSCALL - 1] = SandboxSyscallNull,
 };

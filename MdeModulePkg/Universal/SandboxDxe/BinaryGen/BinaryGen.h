@@ -10,4 +10,9 @@ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
 
 VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
                                       IN CONST UINT64 JumpContext);
+
+VOID *CreateCallbackTrampoline(IN UEFI_SANDBOX *Sandbox,
+                               IN CONST UINT64 ReflectFunc,
+                               IN CONST UINT64 CalleeID,
+                               IN CONST UINT64 FuncAddress);
 #endif
