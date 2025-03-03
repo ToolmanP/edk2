@@ -26,9 +26,9 @@ VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
  * Exceptions handled by sandbox core
  */
 #define EXCEPTION_SYSTEM_CALL 0
-#define EXCEPTION_SYSTEM_ERROR 3
 #define EXCEPTION_SANDBOX_RETURN 1
 #define EXCEPTION_INSTRUCTION_PERMISSION_FAULT 2
+#define EXCEPTION_SYSTEM_ERROR 3
 
 EFI_STATUS RegisterSyncExceptionHandler(BOOLEAN Unregister);
 

@@ -97,6 +97,7 @@
   Init/AArch64/ArchInit.c
 
   Decompiler/AArch64/Decompiler.c
+  Decompiler/AArch64/Resolver.S
 
 [Packages]
   MdePkg/MdePkg.dec

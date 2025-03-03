@@ -15,8 +15,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
 
   if(TplRaise)
     Tpl = gBS->RaiseTPL(TPL_HIGH_LEVEL);
-  else
-    DisableInterrupts();
+
 
   PrevSandbox = CurrentSandbox;
   CurrentSandbox = Sandbox;
@@ -25,8 +24,6 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
 
   if(TplRaise)
     gBS->RestoreTPL(Tpl);
-  else
-    EnableInterrupts();
 
   return PrevSandbox;
 }

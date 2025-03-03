@@ -1,3 +1,5 @@
+#include "Library/DebugLib.h"
+#include "Sched.h"
 #include <Library/DefaultExceptionHandlerLib.h>
 #include <Library/SandboxSyscalls.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -153,6 +155,8 @@ STATIC INT32 ExceptionSyndrome(IN UINT32 Esr) {
   Iss = Esr & 0x00ffffff;
 
   switch (Ec) {
+  case 0x0:
+    return EXCEPTION_SYSTEM_ERROR;
   case 0x15:
     Message = "SVC executed in AArch64";
     return 0;
@@ -194,18 +198,23 @@ STATIC VOID HandleSyscall(IN EFI_SYSTEM_CONTEXT SystemContext) {
 STATIC VOID HandleSyncException(IN CONST EFI_EXCEPTION_TYPE InterruptType,
                                 IN OUT CONST EFI_SYSTEM_CONTEXT SystemContext) {
 
+  UEFI_SANDBOX *PrevSandbox;
   UINTN ExceptionType;
-
   ExceptionType = ExceptionSyndrome(SystemContext.SystemContextAArch64->ESR);
 
   switch (ExceptionType) {
   case EXCEPTION_SYSTEM_CALL:
     HandleSyscall(SystemContext);
     break;
-  case EXCEPTION_SYSTEM_ERROR:
-    if (EFI_ERROR(mDecompiler.Resolve(SystemContext))) {
+  case EXCEPTION_SYSTEM_ERROR: {
+    PrevSandbox = ScheduleToSandboxInternal(&CoreSandbox, FALSE);
+    if (EFI_ERROR(mDecompiler.Resolve(SystemContext)))
       DefaultExceptionHandler(InterruptType, SystemContext);
-    }
+    else
+      SystemContext.SystemContextAArch64->ELR += 4;
+    ScheduleToSandboxInternal(PrevSandbox, FALSE);
+    break;
+  }
   default:
     /* Assert */
     DefaultExceptionHandler(InterruptType, SystemContext);
