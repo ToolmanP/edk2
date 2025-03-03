@@ -6,6 +6,7 @@
 #include <Interface/Duplicate.h>
 #include <Interface/Interface.h>
 #include <Interface/PointerList.h>
+#include <Interface/Workaround.h>
 #include <Memory/Malloc.h>
 #include <Memory/Memory.h>
 #include <SandboxDxe.h>
@@ -334,32 +335,6 @@ STATIC EFI_STATUS CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
   DstSandbox = Ctx->PointerList->DstSandbox;
   Status = EFI_SUCCESS;
 
-  if (AsciiStrStr(Param->ParamName, "Str") != NULL ||
-      AsciiStrCmp(Param->ParamName, "FileName") == 0) {
-    ASSERT(Param->ParamType->Kind == BasicTypeKind);
-    if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR16") == 0) {
-      MemSize = StrSize((CHAR16 *)TO_PHYS_ADDR(Src[Index]));
-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Ctx->PointerList->DstSandbox, MemSize));
-      CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
-
-    } else if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR8") ==
-               0) {
-
-      MemSize = AsciiStrSize((CHAR8 *)TO_PHYS_ADDR(Src[Index]));
-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
-          Ctx->PointerList->DstSandbox, MemSize));
-      CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
-
-    } else {
-      __unimplemented("Str Type: %a\n", Param->ParamType->BasicType->TypeName);
-    }
-    Syncable = Ctx->Syncable;
-    return InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
-                                   Src[Index], Dst[Index], (UINT64)&Dst[Index],
-                                   MemSize, Syncable);
-  }
-
   ArraySize = SpeculateFunctionParamArraySize(Src, Function, Param);
 
   if (Param->PointerLevel == 1) {
@@ -474,6 +449,17 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
                           Dst[Index], (UINT64)&Dst[Index], MemSize, FALSE);
 }
 
+STATIC EFI_STATUS PrepareHeapParam(IN DUPLICATE_CTX *Ctx,
+                                   IN CONST REFLECT_FUNC_TYPE *Func,
+                                   IN CONST UINT64 *Src, OUT UINT64 *Dst,
+                                   UINTN Index) {
+  Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
+      Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
+  return InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index], Dst[Index],
+                                 (UINTN)&Dst[Index],
+                                 sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+}
+
 EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
                              IN CONST REFLECT_FUNC_TYPE *Func,
                              IN CONST UINT64 *Src, OUT UINT64 *Dst) {
@@ -493,53 +479,31 @@ EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
     ASSERT(Param->OutParam || Param->InParam);
 
-    if (AsciiStrCmp(Param->ParamName, "Context") == 0) {
-      Dst[Index] = Src[Index];
-      continue;
-    }
-
-    if (AsciiStrStr(Param->ParamName, "CallBack") != NULL) {
-      ASSERT(Param->ParamType->Kind == FunctionKind);
-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)CreateCallbackTrampoline(
-          Ctx->PointerList->SrcSandbox, (UINTN)Param->ParamType->Function,
-          Ctx->PointerList->DstSandbox->SandboxID, Src[Index]));
-      InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
-                              Dst[Index], (UINTN)&Src[Index], sizeof(UINTN),
-                              FALSE);
-      continue;
-    }
-
     if (Param->ParamType->Kind == ProtocolKind) {
       // Src[i] With Real Protocol Interface Counterpart find this protocol in
       // the protocol list;
-
       if (Param->InParam)
         Dst[Index] = (UINTN)Opaque;
       else {
         ASSERT(Param->PointerLevel == 2);
-        Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
-            Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
-        Status = InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
-                                         Dst[Index], (UINTN)&Dst[Index],
-                                         sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+        Status = PrepareHeapParam(Ctx, Func, Src, Dst, Index);
         if (EFI_ERROR(Status))
           goto out;
       }
     } else {
-
       if (Param->PointerLevel > 0) {
-
         if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
           ASSERT(Param->PointerLevel == 2);
-          Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
-              Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
-          InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
-                                  Dst[Index], (UINTN)&Dst[Index],
-                                  sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+          Status = PrepareHeapParam(Ctx, Func, Src, Dst, Index);
+          if (EFI_ERROR(Status))
+            goto out;
         } else {
           Ctx->Syncable = Param->OutParam;
+          Status = ApplyAvailableParamCopyWorkaround(Ctx, Func, Param, Src, Dst,
+                                                     Index);
+          if (!EFI_ERROR(Status))
+            goto out;
           Status = CopyOneCallParam(Ctx, Func, Param, Src, Dst, Index);
-
           if (EFI_ERROR(Status))
             goto out;
         }

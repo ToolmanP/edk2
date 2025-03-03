@@ -49,6 +49,9 @@
   Interface/Duplicate.c
   Interface/Jumper.c
   Interface/Duplicate.h
+  Interface/Workaround.c
+  Interface/Workaround/Name.c
+  Interface/Workaround/Callback.c
 
   BinaryGen/BinaryGen.h
 
@@ -101,6 +104,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  OvmfPkg/OvmfPkg.dec
   MdeModulePkg/MdeModulePkg.dec
   RedfishPkg/RedfishPkg.dec
 
