@@ -24,20 +24,6 @@ typedef struct {
 
 typedef SandboxInterface SANDBOX_INTERFACE;
 
-#if defined (__x86_64__)
-typedef struct {
-  UINT64 R0;
-  UINT64 R1;
-  UINT64 R2;
-  UINT64 R3;
-  UINT64 R4;
-  UINT64 R5;
-  UINT64 RCX;  // Function Entrypoint
-  UINT64 RDX;  // Return Trampoline
-  UINT64 RSP;  // User Stack
-} InterfaceParams;
-
-#elif defined (__aarch64__)
 typedef struct {
   /*General Perpose */
   UINT64 X0;
@@ -55,7 +41,6 @@ typedef struct {
   UINT64 ELR;
   UINT64 SPSR;
 } InterfaceParams;
-#endif
 
 typedef InterfaceParams INTERFACE_PARAMS;
 

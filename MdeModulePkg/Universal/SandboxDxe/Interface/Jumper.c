@@ -81,16 +81,6 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
 
   SetJumpFlag = SetJump(Context.JumpContext);
   if (SetJumpFlag == 0) {
-#if defined(__x86_64__)
-    // At most 6 parameters can be passed through registers,
-    // we don't consider more than 6 parameters here.
-    CopyMem(&Context.EntryParams, Params, 6 * sizeof(UINT64));
-    Context.EntryParams.RCX = *(UINTN *)(Located->Sandboxed->Opaque + Offset);
-    Context.EntryParams.RDX =
-        TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
-    Context.EntryParams.RSP =
-        TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
-#elif defined(__aarch64__)
     CopyMem(&Context.EntryParams, Params, 8 * sizeof(UINT64));
     Context.EntryParams.LR =
         TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
@@ -98,7 +88,6 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
-#endif
     ScheduleToSandboxInternal(Context.CalleeSandbox, TRUE);
     CallSandboxFunc(&Context.EntryParams);
     __unreachable("Should not reach here\n");

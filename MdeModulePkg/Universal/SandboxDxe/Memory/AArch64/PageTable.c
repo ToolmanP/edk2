@@ -36,7 +36,9 @@ inline VOID FlushIcacheAll(VOID) {
   asm volatile("isb");
 }
 
-void SetPageTable(void *pgtbl) { ArmSetTTBR0(pgtbl); }
+void SetSandboxPageTable(UEFI_SANDBOX *Sandbox) {
+  ArmSetTTBR0((VOID *)(Sandbox->TranslationTable | Sandbox->SandboxID << 48));
+}
 
 EFI_PHYSICAL_ADDRESS GetPageTable(void) {
   return (EFI_PHYSICAL_ADDRESS)ArmGetTTBR0BaseAddress();

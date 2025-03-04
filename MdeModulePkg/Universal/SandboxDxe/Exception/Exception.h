@@ -1,10 +1,6 @@
 #ifndef SANDBOX_EXCEPTION_H_
 #define SANDBOX_EXCEPTION_H_
 
-#if defined(__x86_64__)
-
-VOID IretToSandbox(EFI_SYSTEM_CONTEXT_X64 *Context);
-#elif defined(__aarch64__)
 /* Registers */
 #define SPSR_EL1_EL0t 0b0000
 #define SPSR_EL1_EL1t 0b0100
@@ -14,7 +10,6 @@ VOID IretToSandbox(EFI_SYSTEM_CONTEXT_X64 *Context);
 #define SPSR_EL1_USER SPSR_EL1_EL0t
 
 VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
-#endif
 
 #define SANDBOX_RETURN_ADDRESS 0xffffbeefbeef
 #define SANDBOX_TRAMPOLINE_RETURN_ADDRESS 0xffffcafecafe

@@ -34,8 +34,6 @@
 
   Exception/Exception.h
 
-  Init/ArchInit.h
-
   Interface/Reflect.h
   Interface/PointerList.c
   Interface/PointerList.h
@@ -70,22 +68,6 @@
   Utils/Hashmap.c
   Utils/Hashmap.h
 
-[Sources.X64]
-  Memory/X64/PageTable.h
-  Memory/X64/PageTable.c
-
-  Exception/X64/irq.S
-  Exception/X64/Exception.c
-
-  Interface/X64/Caller.S
-
-  BinaryGen/X64/BinaryGen.c
-
-  Init/X64/ArchInit.c
-  Init/X64/Gdt.h
-  Init/X64/Tss.h
-  Init/X64/CpuInfo.h
-
 [Sources.AARCH64]
   Memory/AArch64/PageTable.h
   Memory/AArch64/PageTable.c
@@ -96,8 +78,6 @@
   Interface/AArch64/Caller.S
 
   BinaryGen/AArch64/BinaryGen.c
-
-  Init/AArch64/ArchInit.c
 
   Decompiler/AArch64/Decompiler.c
   Decompiler/AArch64/Resolver.S
@@ -110,9 +90,6 @@
 
 [Packages.AARCH64]
   ArmPkg/ArmPkg.dec
-
-[Packages.X64]
-  UefiCpuPkg/UefiCpuPkg.dec
 
 [Protocols]
   gEfiSandboxArchProtocolGuid
@@ -134,9 +111,6 @@
   DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf
   ArmLib
   ArmMmuLib
-
-[LibraryClasses.X64]
-  CpuPageTableLib|UefiCpuPkg/Library/CpuPageTableLib/CpuPageTableLib.inf
 
 [Depex]
   gEfiCpuArchProtocolGuid

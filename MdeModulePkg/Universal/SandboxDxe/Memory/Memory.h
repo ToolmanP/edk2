@@ -1,11 +1,7 @@
 #ifndef SANDBOX_MEMORY_H_
 #define SANDBOX_MEMORY_H_
 
-#if defined(__x86_64__)
-#include "X64/PageTable.h"
-#elif defined(__aarch64__)
 #include <AArch64/PageTable.h>
-#endif
 #include <SandboxDxe.h>
 
 #define PAGE_SIZE EFI_PAGE_SIZE
@@ -71,7 +67,7 @@ EFI_STATUS UnmapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
                                  IN EFI_VIRTUAL_ADDRESS VirtualEnd,
                                  IN BOOLEAN TableIsLive);
 
-void SetPageTable(void *pgtbl);
+void SetSandboxPageTable(UefiSandbox *Sandbox);
 EFI_PHYSICAL_ADDRESS GetPageTable(void);
 
 EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable,

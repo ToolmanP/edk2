@@ -681,19 +681,12 @@ SandboxExecuteCallback(IN REFLECT_FUNC_TYPE *Func, IN UINTN CalleeID,
   return Status;
 }
 
-#if defined(__x86_64__)
-extern UINT64 CurrentCpuInfoIndex;
-#endif
-
 EFI_STATUS
 SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
                          EFI_STATUS Status) {
 
   if (Status == (1UL << sizeof(EFI_STATUS)))
     Status = 0;
-#if defined(__x86_64__)
-  CurrentCpuInfoIndex--;
-#endif
   LongJump(JumpBuffer, Status + 1);
   __unreachable();
   return EFI_SUCCESS;

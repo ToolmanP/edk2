@@ -36,20 +36,12 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
   SetJumpFlag = SetJump(JumpContext);
 
   if (SetJumpFlag == 0) {
-#if defined(__x86_64__)
-    Params.R0 = (UINT64)Event;
-    Params.R1 = (UINT64)Context;
-    Params.RCX = (UINT64)IEvent->NotifyFunction;
-    Params.RDX = (EFI_VIRTUAL_ADDRESS)PHYS_TO_VIRT(ReturnTrampoline);
-    Params.RSP = (UINT64)StackBuffer + DEFAULT_STACK_SIZE;
-#elif defined(__aarch64__)
     Params.X0 = (UINT64)Event;
     Params.X1 = (UINT64)Context;
     Params.LR = (EFI_VIRTUAL_ADDRESS)PHYS_TO_VIRT(ReturnTrampoline);
     Params.SP = (UINT64)StackBuffer + DEFAULT_STACK_SIZE;
     Params.SPSR = SPSR_EL1_USER;
     Params.ELR = (UINT64)IEvent->NotifyFunction;
-#endif
     CallSandboxFunc(&Params);
     __unreachable();
   }

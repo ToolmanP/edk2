@@ -7,7 +7,6 @@
 
 #include <BinaryGen/BinaryGen.h>
 #include <Exception/Exception.h>
-#include <Init/ArchInit.h>
 #include <Interface/Registry.h>
 #include <Memory/Malloc.h>
 #include <Memory/Memory.h>
@@ -16,13 +15,6 @@
 #include <Sched/Sched.h>
 #include <SystemTable/SystemTable.h>
 #include <Utils/Logger.h>
-
-#define ProtocolDBTest 0
-#if ProtocolDBTest
-#include "Protocol/DiskIo.h"
-#include "Protocol/SerialIo.h"
-#include "Protocol/SimpleFileSystem.h"
-#endif
 
 LIST_ENTRY mSandboxList = INITIALIZE_LIST_HEAD_VARIABLE(mSandboxList);
 
@@ -87,20 +79,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
     goto free_sandbox;
   }
 
-#if defined(__x86_64__)
-  Status = CreateIdenticalPageTable(CoreSandbox.TranslationTable,
-                                    &Sandbox->TranslationTable);
-  if (EFI_ERROR(Status)) {
-    SBError("MapExistingMappings failed: %r\n", Status);
-    goto free_stack;
-  }
-
-  /*
-   * Map the FV region
-   */
-  Status = AddVMRegion(Sandbox, 0x800000, 0x800000, 0x1400000,
-                       VMR_READ | VMR_WRITE, FALSE);
-#elif defined(__aarch64__)
   /*
    * Allocate page table
    */
@@ -140,7 +118,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
                           KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE,
                           VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
   ASSERT_EFI_ERROR(Status);
-#endif
 
   Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(Sandbox->Context.StackBase),
                        (EFI_PHYSICAL_ADDRESS)Sandbox->Context.StackBase,
@@ -226,25 +203,6 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
   SetJumpFlag = SetJump(Sandbox->JumpContext);
 
   if (SetJumpFlag == 0) {
-#if defined(__x86_64__)
-    EFI_SYSTEM_CONTEXT_X64 Context;
-    ZeroMem(&Context, sizeof(EFI_SYSTEM_CONTEXT_X64));
-
-    Context.Rcx = (EFI_VIRTUAL_ADDRESS)Sandbox->ImageData.EntryPoint;
-    Context.Rdx = PHYS_TO_VIRT(ReturnTrampoline);
-    Context.R8 = PHYS_TO_VIRT(Sandbox->Context.StackBase + DEFAULT_STACK_SIZE);
-    Context.R9 = (EFI_PHYSICAL_ADDRESS)Handle;
-    Context.Rax = (EFI_VIRTUAL_ADDRESS)Sandbox->ImageData.Info.SystemTable;
-
-    ScheduleToSandboxInternal(Sandbox, TRUE);
-
-    SBDebug("Starting Sandbox %d, PageTable: 0x%lx\n, ImageHandle: 0x%lx, "
-            "SystemTable: 0x%lx\n",
-            Sandbox->SandboxID, (UINT64)Sandbox->TranslationTable, Context.R9,
-            Context.Rax);
-
-    IretToSandbox(&Context);
-#elif defined(__aarch64__)
     EFI_SYSTEM_CONTEXT_AARCH64 Context;
 
     Context.X0 = (EFI_PHYSICAL_ADDRESS)(Handle);
@@ -266,7 +224,6 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
 
     ScheduleToSandboxInternal(Sandbox, TRUE);
     EretToSandbox(&Context);
-#endif
   }
 
   ScheduleToSandboxInternal(&CoreSandbox, TRUE);
@@ -365,12 +322,6 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
   EFI_STATUS Status;
   UINT64 CoreTranslationTableBase;
 
-  Status = ArchInit();
-  if (EFI_ERROR(Status)) {
-    SBError("ArchInit failed: %r\n", Status);
-    return Status;
-  }
-
   /*
    * Initialize Protocol Database
    */
@@ -378,32 +329,6 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
   if (EFI_ERROR(Status)) {
     __unreachable("Fail to initialize protocol database\n");
   }
-
-#if ProtocolDBTest
-  struct Protocol *Protocol;
-  EFI_GUID Guid1 = EFI_SERIAL_IO_PROTOCOL_GUID;
-  Status = GetProtocol(&Guid1, &Protocol);
-  if (EFI_ERROR(Status)) {
-    SBError("Fail to get SerialIo protocol\n");
-    __unreachable();
-  }
-
-  EFI_GUID Guid2 = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
-  Status = GetProtocol(&Guid2, &Protocol);
-  if (EFI_ERROR(Status)) {
-    SBError("Fail to get SimpleFileSystem protocol\n");
-    __unreachable();
-  }
-
-  EFI_GUID Guid3 = EFI_DISK_IO_PROTOCOL_GUID;
-  Status = GetProtocol(&Guid3, &Protocol);
-  if (EFI_ERROR(Status)) {
-    SBError("Fail to get DiskIo protocol\n");
-    __unreachable();
-  }
-
-  SBDebug("Pass Protocol Analyze Test\n");
-#endif
 
   Status = RegisterSyncExceptionHandler(FALSE);
   ASSERT_EFI_ERROR(Status);
