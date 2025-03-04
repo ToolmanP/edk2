@@ -69,9 +69,8 @@ EFI_STATUS UnmapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
 
 void SetSandboxPageTable(UefiSandbox *Sandbox);
 EFI_PHYSICAL_ADDRESS GetPageTable(void);
-
-EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable,
-                                    IN OUT UINT64 *DstPageTable);
+EFI_STATUS CreateIdenticalPageTable(IN UINT64 *SrcPageTablePtr,
+                                    IN OUT UINT64 *DstPageTablePtr);
 VOID PrintPageTable(UINT64 PageTable);
 
 EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr);

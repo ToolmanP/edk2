@@ -1,7 +1,9 @@
+#include <Chipset/AArch64Mmu.h>
 #include <Library/ArmLib.h>
 #include <Library/ArmMmuLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/CacheMaintenanceLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 
@@ -404,10 +406,39 @@ VOID FreePageTablesRecursive(IN UINT64 *TranslationTablePtr, IN UINTN Level) {
   FreePages(TranslationTable, 1);
 }
 
-EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable,
-                                    IN OUT UINT64 *DstPageTable) {
-  __unimplemented("AArch64 CreateIdenticalPageTable");
-  return EFI_UNSUPPORTED;
+STATIC UINT64 *CopyPageTable(IN UINT64 *SrcPageTable, IN UINTN Level) {
+  UINT64 *NewTable, *ChildTable;
+  NewTable = (UINT64 *)AllocatePages(1);
+
+  if (NewTable == 0)
+    __unreachable();
+
+  for (UINTN i = 0; i < TT_ENTRY_COUNT; i++) {
+    UINTN EntryValue = SrcPageTable[i];
+    NewTable[i] = EntryValue;
+
+    if (!(EntryValue & TT_TYPE_MASK))
+      continue;
+
+    if (IsTableEntry(EntryValue, Level)) {
+      ChildTable = CopyPageTable(
+          (UINT64 *)(EntryValue & TT_ADDRESS_MASK_DESCRIPTION_TABLE),
+          Level + 1);
+      NewTable[i] = (UINTN)(EntryValue & ~TT_ADDRESS_MASK_DESCRIPTION_TABLE) |
+                    (UINT64)ChildTable;
+      if (ChildTable == NULL)
+        __unreachable();
+    }
+  }
+
+  DcacheCleanAndInvaliateArea((UINTN)NewTable, (UINTN)NewTable + EFI_PAGE_SIZE);
+  return NewTable;
+}
+
+EFI_STATUS CreateIdenticalPageTable(IN UINT64 *SrcPageTablePtr,
+                                    IN OUT UINT64 *DstPageTablePtr) {
+  *DstPageTablePtr = (UINT64)CopyPageTable((UINT64 *)*SrcPageTablePtr, 0);
+  return EFI_SUCCESS;
 }
 
 VOID PrintPageTable(UINT64 PageTable) {
@@ -415,9 +446,7 @@ VOID PrintPageTable(UINT64 PageTable) {
 }
 
 EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr) {
-  return MapRangeInPageTable(
-      CorePageTablePtr, KERNEL_SYSTEM_DRAM_BASE,
-      PHYS_TO_VIRT(KERNEL_SYSTEM_DRAM_BASE),
-      PHYS_TO_VIRT(KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE),
-      VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
+  UINT64 *CorePageTable = (UINT64 *)*CorePageTablePtr;
+  CorePageTable[(USER_BASE >> 39) & 0x1ff] = CorePageTable[0];
+  return EFI_SUCCESS;
 }

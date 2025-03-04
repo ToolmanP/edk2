@@ -83,6 +83,8 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
    * Allocate page table
    */
   Status = CreatePageTable(&Sandbox->TranslationTable);
+  CreateIdenticalPageTable(&CoreSandbox.TranslationTable,
+                           &Sandbox->TranslationTable);
   if (EFI_ERROR(Status)) {
     SBError("Fail to create user page table\n");
     goto free_sandbox;
@@ -91,16 +93,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
   InitSandboxMallocManager(Sandbox->MallocManager);
 
-  /* TODO: can we map FV region directly? */
-  // FIXME: shoule bd readonly?
-  /*
-   * Map the FV region as normal executable memory
-   */
-  Status = MapRangeInPageTable(&Sandbox->TranslationTable, 0x1000, 0x1000,
-                               0x1FF000, VMR_READ | VMR_EXEC, TRUE, FALSE);
-
-  ASSERT_EFI_ERROR(Status);
-
   /* TODO: Can we map MMIO region directly? */
   /*
    * Map MMIO region
@@ -108,15 +100,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   Status = AddVMRegion(Sandbox, 0x8000000, 0x8000000, 0x8000000,
                        VMR_READ | VMR_WRITE, FALSE);
 
-  ASSERT_EFI_ERROR(Status);
-  /*
-   * Map kernel range in sandbox page table, user can't access kernel memory
-   */
-  Status =
-      MapRangeInPageTable(&Sandbox->TranslationTable, KERNEL_SYSTEM_DRAM_BASE,
-                          KERNEL_SYSTEM_DRAM_BASE,
-                          KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE,
-                          VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
   ASSERT_EFI_ERROR(Status);
 
   Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(Sandbox->Context.StackBase),
@@ -133,12 +116,11 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
                        VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
   ASSERT_EFI_ERROR(Status);
 
-  Sandbox->ImageData = ImageData;
-
   /*
    * Initialize the sandbox system table
    */
 
+  Sandbox->ImageData = ImageData;
   Status = InitAndMapSandboxSystemTable(Sandbox, ImageData.Info.SystemTable);
   if (EFI_ERROR(Status)) {
     SBError("Fail to initialize sandbox system table\n");
