@@ -1,6 +1,7 @@
 #include <Library/BaseLib.h>
-#include <Library/DebugLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/CacheMaintenanceLib.h>
+#include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/Sandbox.h>
@@ -67,7 +68,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
   ZeroMem(Sandbox, sizeof(UefiSandbox));
 
   InitializeListHead(&Sandbox->VMRegions);
-
   /*
    * Allocate memory for the stack and map it in the sandbox page table
    */
@@ -147,9 +147,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
 
   InitializeListHead(&Sandbox->LocatedInterfaces);
   InitializeListHead(&Sandbox->InstalledInterfaces);
-
-  InitializeListHead(&Sandbox->SVCTrampolineList);
-  EfiInitializeLock(&Sandbox->SVCTrampolineLock, TPL_NOTIFY);
   InsertTailList(&mSandboxList, &Sandbox->SandboxListNode);
   Sandbox->SandboxID = GetNextSandBoxID();
   *SandboxID = Sandbox->SandboxID;
@@ -215,13 +212,11 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
     Context.SPSR = SPSR_EL1_USER;
     Context.LR = PHYS_TO_VIRT(ReturnTrampoline); // TODO: what now
 
-    FlushIcacheAll();
-
     /* TODO: shrink the range */
     DcacheCleanAndInvaliateArea(KERNEL_SYSTEM_DRAM_BASE,
                                 KERNEL_SYSTEM_DRAM_BASE +
                                     KERNEL_SYSTEM_DRAM_SIZE);
-
+    FlushIcacheAll();
     ScheduleToSandboxInternal(Sandbox, TRUE);
     EretToSandbox(&Context);
   }

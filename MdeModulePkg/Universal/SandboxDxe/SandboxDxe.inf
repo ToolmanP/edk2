@@ -106,6 +106,7 @@
   JsonLib
   Ucs2Utf8Lib
   RedfishCrtLib
+  CacheMaintenanceLib
 
 [LibraryClasses.AARCH64]
   DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf

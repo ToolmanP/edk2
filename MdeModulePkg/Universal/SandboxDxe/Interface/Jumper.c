@@ -1,5 +1,6 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/CacheMaintenanceLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 
@@ -40,7 +41,7 @@ EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
   EFI_STATUS Status;
   UEFI_SANDBOX *CallerSandbox;
   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
-
+  FlushIcacheAll();
   Status = CallCoreFunc(Params, FuncAddress);
   ScheduleToSandboxInternal(CallerSandbox, TRUE);
   return Status;
@@ -88,6 +89,10 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
     Context.EntryParams.SPSR = SPSR_EL1_USER;
     Context.EntryParams.SP =
         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
+    DcacheCleanAndInvaliateArea((UINT64)Context.ReturnTrampoline,
+                                (UINT64)Context.ReturnTrampoline +
+                                    RETURN_TRAMPOLINE_SIZE);
+    FlushIcacheAll();
     ScheduleToSandboxInternal(Context.CalleeSandbox, TRUE);
     CallSandboxFunc(&Context.EntryParams);
     __unreachable("Should not reach here\n");
