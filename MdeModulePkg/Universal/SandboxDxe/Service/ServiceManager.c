@@ -610,8 +610,7 @@ EFI_STATUS SandboxFuncCallout(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
 
   // SyncInterfaceMagisk(&Located->Magisk);
   if (!EFI_ERROR(Status))
-    SyncCalloutParams(CallerSandbox, CalleeSandbox, Func, Params,
-                      CallSiteParams);
+    SyncCalloutParams(Ctx, Func, Params, CallSiteParams);
 
   FreePointerRecordList(Ctx->PointerList, POINTER_SYNC_DST_TO_SRC);
   ScheduleToSandboxInternal(CallerSandbox, TRUE);

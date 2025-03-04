@@ -25,13 +25,12 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
                                           OUT EFI_VIRTUAL_ADDRESS *Dst,
                                           IN CONST UINTN PointerLevels);
 EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
-                                   IN CONST REFLECT_FUNC_TYPE *Function,
-                                   IN CONST UINT64 *Src, OUT UINT64 *Dst);
-
-VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
-                             IN UEFI_SANDBOX *CalleeSandbox,
                              IN CONST REFLECT_FUNC_TYPE *Function,
-                             IN CONST UINT64 *Dst, OUT UINT64 *Src);
+                             IN CONST UINT64 *Src, OUT UINT64 *Dst);
+
+VOID SyncCalloutParams(IN DUPLICATE_CTX *Ctx,
+                       IN CONST REFLECT_FUNC_TYPE *Function,
+                       IN CONST UINT64 *Dst, OUT UINT64 *Src);
 
 UINT64 SpeculateTypeFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
                                    IN CONST REFLECT_TYPE *Type,

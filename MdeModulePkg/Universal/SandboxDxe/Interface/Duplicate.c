@@ -524,13 +524,15 @@ out:
 }
 
 EFI_STATUS AllocatePersistentLocatedInterface(
-    IN UEFI_SANDBOX *CallerSandbox, IN UEFI_SANDBOX *CalleeSandbox,
-    IN REFLECT_PROTOCOL *Protocol, IN CONST EFI_VIRTUAL_ADDRESS Delegated,
-    OUT LOCATED_INTERFACE **Located) {
+    IN DUPLICATE_CTX *Ctx, IN REFLECT_PROTOCOL *Protocol,
+    IN CONST EFI_VIRTUAL_ADDRESS Delegated, OUT LOCATED_INTERFACE **Located) {
 
   LOCATED_INTERFACE *LocatedInterface;
   SANDBOX_INTERFACE *Sandboxed;
+  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
 
+  CallerSandbox = Ctx->PointerList->SrcSandbox;
+  CalleeSandbox = Ctx->PointerList->DstSandbox;
   LocatedInterface = AllocatePool(sizeof(*LocatedInterface));
   Sandboxed = AllocatePool(sizeof(*Sandboxed));
 
@@ -552,8 +554,7 @@ EFI_STATUS AllocatePersistentLocatedInterface(
                                &LocatedInterface->Magisk);
 }
 
-VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
-                       IN UEFI_SANDBOX *CalleeSandbox,
+VOID SyncCalloutParams(IN DUPLICATE_CTX *Ctx,
                        IN CONST REFLECT_FUNC_TYPE *Function,
                        IN CONST UINT64 *Dst, OUT UINT64 *Src) {
 
@@ -567,36 +568,36 @@ VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
 
   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
+
     if (Param->ParamType->Kind == ProtocolKind && Param->OutParam) {
       ASSERT(Param->PointerLevel == 2);
       ASSERT(Param->ParamType->Kind = ProtocolKind);
       Status = AllocatePersistentLocatedInterface(
-          CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
-          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located);
+          Ctx, Param->ParamType->Protocol, *(EFI_VIRTUAL_ADDRESS *)Dst[Index],
+          &Located);
       ASSERT_EFI_ERROR(Status);
       *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
-    } else {
-      if (Param->PointerLevel > 1 && Param->OutParam) {
-        PhysDst =
-            (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
-
-        if (AsciiStrStr(Param->ParamName, "Name") != NULL) {
-          Size = StrSize(PhysDst);
-        } else {
-
-          ArraySize = SpeculateFunctionParamArraySize(Dst, Function, Param);
-          if (Param->ParamType->Kind == BasicTypeKind)
-            Size = ArraySize * Param->ParamType->BasicType->TypeSize;
-          else
-            Size = ArraySize * Param->ParamType->CustomType->TypeSize;
-        }
-        PhysSrc = AllocateSandboxMemory(CallerSandbox, Size);
-        CopyMem(PhysSrc, PhysDst, Size);
-        *(VOID **)TO_PHYS_ADDR(Src[Index]) =
-            (VOID *)TO_VIRT_ADDR((UINTN)PhysSrc);
-      }
+      goto loop;
     }
 
+    if (Param->PointerLevel > 1 && Param->OutParam) {
+      PhysDst =
+          (VOID *)TO_PHYS_ADDR((UINTN)(*(VOID **)TO_PHYS_ADDR(Dst[Index])));
+      if (AsciiStrStr(Param->ParamName, "Name") != NULL) {
+        Size = StrSize(PhysDst);
+      } else {
+        ArraySize = SpeculateFunctionParamArraySize(Dst, Function, Param);
+        if (Param->ParamType->Kind == BasicTypeKind)
+          Size = ArraySize * Param->ParamType->BasicType->TypeSize;
+        else
+          Size = ArraySize * Param->ParamType->CustomType->TypeSize;
+      }
+      PhysSrc = AllocateSandboxMemory(Ctx->PointerList->SrcSandbox, Size);
+      CopyMem(PhysSrc, PhysDst, Size);
+      *(VOID **)TO_PHYS_ADDR(Src[Index]) = (VOID *)TO_VIRT_ADDR((UINTN)PhysSrc);
+    }
+
+  loop:
     Index++;
   }
 }
