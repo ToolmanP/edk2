@@ -1,0 +1,454 @@
+From 5f1fd6c2d604a8d1a63fa6b4199902b67febcfe3 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Fri, 28 Feb 2025 13:47:45 +0800
+Subject: [PATCH 03/13] feat: kernel mode shadow system table injection
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../SandboxSyscallInjectionLib.c              | 12 +--
+ .../Universal/SandboxDxe/SandboxDxe.c         |  6 +-
+ .../Universal/SandboxDxe/SandboxDxe.inf       |  4 +
+ .../SystemTable/AArch64/AsmSyscall.h          | 10 +++
+ .../SandboxDxe/SystemTable/AArch64/Blob.S     |  9 +++
+ .../SandboxDxe/SystemTable/AsmBlob.h          | 35 +++++++++
+ .../Universal/SandboxDxe/SystemTable/Blob.h   | 75 ++++++++++++++++++
+ .../SandboxDxe/SystemTable/GenericBlob.S      | 63 +++++++++++++++
+ .../SandboxDxe/SystemTable/Injection.c        |  0
+ .../SandboxDxe/SystemTable/SystemTable.c      | 27 +++++++
+ .../SandboxDxe/SystemTable/VaradicBlob.S      | 78 +++++++++++++++++++
+ 11 files changed, 310 insertions(+), 9 deletions(-)
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/AsmSyscall.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/Blob.S
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/AsmBlob.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/Blob.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/GenericBlob.S
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/Injection.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/SystemTable/VaradicBlob.S
+
+diff --git a/MdeModulePkg/Library/SandboxSyscallInjectionLib/SandboxSyscallInjectionLib.c b/MdeModulePkg/Library/SandboxSyscallInjectionLib/SandboxSyscallInjectionLib.c
+index 52231c1213..cca60d525a 100644
+--- a/MdeModulePkg/Library/SandboxSyscallInjectionLib/SandboxSyscallInjectionLib.c
++++ b/MdeModulePkg/Library/SandboxSyscallInjectionLib/SandboxSyscallInjectionLib.c
+@@ -505,8 +505,8 @@ SetSandboxSystemTable(IN EFI_SYSTEM_TABLE *SystemTable) {
+   SystemTable->BootServices->SignalEvent = mSignalEvent;
+   SystemTable->BootServices->CloseEvent = mCloseEvent;
+   SystemTable->BootServices->CheckEvent = mCheckEvent;
+-  SystemTable->BootServices->InstallProtocolInterface =
+-      mInstallProtocolInterface;
++  // SystemTable->BootServices->InstallProtocolInterface =
++  //     mInstallProtocolInterface;
+   SystemTable->BootServices->ReinstallProtocolInterface =
+       mReinstallProtocolInterface;
+   SystemTable->BootServices->UninstallProtocolInterface =
+@@ -533,10 +533,10 @@ SetSandboxSystemTable(IN EFI_SYSTEM_TABLE *SystemTable) {
+   SystemTable->BootServices->ProtocolsPerHandle = mProtocolsPerHandle;
+   SystemTable->BootServices->LocateHandleBuffer = mLocateHandleBuffer;
+   SystemTable->BootServices->LocateProtocol = mLocateProtocol;
+-  SystemTable->BootServices->InstallMultipleProtocolInterfaces =
+-      mInstallMultipleProtocolInterfaces;
+-  SystemTable->BootServices->UninstallMultipleProtocolInterfaces =
+-      mUninstallMultipleProtocolInterfaces;
++  // SystemTable->BootServices->InstallMultipleProtocolInterfaces =
++  //     mInstallMultipleProtocolInterfaces;
++  // SystemTable->BootServices->UninstallMultipleProtocolInterfaces =
++  //     mUninstallMultipleProtocolInterfaces;
+   SystemTable->BootServices->CalculateCrc32 = mCalculateCrc32;
+   SystemTable->BootServices->CopyMem = mCopyMem;
+   SystemTable->BootServices->SetMem = mSetMem;
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+index 08a3928428..96b995a500 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+@@ -158,15 +158,15 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+   /*
+    * Initialize the sandbox system table
+    */
++
++  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
++  InitSandboxMallocManager(Sandbox->MallocManager);
+   Status = InitAndMapSandboxSystemTable(Sandbox, ImageData.Info.SystemTable);
+   if (EFI_ERROR(Status)) {
+     SBError("Fail to initialize sandbox system table\n");
+     goto free_stack;
+   }
+ 
+-  Sandbox->MallocManager = AllocatePool(sizeof(struct SandboxMallocManager));
+-  InitSandboxMallocManager(Sandbox->MallocManager);
+-
+   InitializeListHead(&Sandbox->LocatedInterfaces);
+   InitializeListHead(&Sandbox->InstalledInterfaces);
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index 2439b7e7e3..cf0d517938 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -21,6 +21,10 @@
+ 
+   SystemTable/SystemTable.h
+   SystemTable/SystemTable.c
++  SystemTable/AsmBlob.h
++  SystemTable/Blob.h
++  SystemTable/GenericBlob.S
++  SystemTable/VaradicBlob.S
+ 
+   Service/ServiceManager.c
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/AsmSyscall.h b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/AsmSyscall.h
+new file mode 100644
+index 0000000000..86997d82a2
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/AsmSyscall.h
+@@ -0,0 +1,10 @@
++#ifndef __ASM_SYSCALL_H__
++#define __ASM_SYSCALL_H__
++#include <AsmMacroIoLibV8.h>
++#define ASM_SYSCALL(n)    \
++  AARCH64_BTI(c)         ;\
++  mov x8, n              ;\
++  svc 0                  ;\
++  ret                    ;\
++
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/Blob.S b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/Blob.S
+new file mode 100644
+index 0000000000..93930e33c0
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AArch64/Blob.S
+@@ -0,0 +1,9 @@
++#include <SystemTable/AsmBlob.h>
++#include <Library/SandboxSyscalls.h>
++
++#include "AsmSyscall.h"
++
++ASM_SYS_BLOB_START_DEFINE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE)
++ASM_SYSCALL(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE);
++ASM_SYS_BLOB_END_DEFINE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE);
++ASM_SYS_BLOB_SIZE_DEFINE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/AsmBlob.h b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AsmBlob.h
+new file mode 100644
+index 0000000000..b8d6af97e0
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/AsmBlob.h
+@@ -0,0 +1,35 @@
++
++#ifndef __ASM_BLOB_H__
++#define __ASM_BLOB_H__
++
++#if defined (__aarch64__)
++#include "AArch64/AsmSyscall.h"
++#endif
++
++#include <Base.h>
++
++#define DELAY(x) x
++#define ASM_SYS_BLOB_START_DEFINE(Name)  \
++  .text                                ; \
++  .global   ASM_BLOB_##Name            ; \
++  .type     ASM_BLOB_##Name, %function ; \
++  ASM_BLOB_##Name:                       \
++
++#define ASM_SYS_BLOB_END_DEFINE(Name)        ; \
++ASM_BLOB_##Name##_END:                       ; \
++.size ASM_BLOB_##Name, . - ASM_BLOB_##Name   ; \
++
++#define ASM_SYS_BLOB_SIZE_DEFINE(Name)         \
++  .data;                                       \
++  .global   ASM_BLOB_##Name##_SIZE           ; \
++  .type     ASM_BLOB_##Name##_SIZE, %object  ; \
++  ASM_BLOB_##Name##_SIZE:; \
++    .quad ASM_BLOB_##Name##_END - ASM_BLOB_##Name
++
++#define ASM_SYS_BLOB_GENERIC_DEFINE(NAME) \
++ASM_SYS_BLOB_START_DEFINE(SANDBOX_SYS_##NAME);   \
++ASM_SYSCALL(SANDBOX_SYS_##NAME);                 \
++ASM_SYS_BLOB_END_DEFINE(SANDBOX_SYS_##NAME);     \
++ASM_SYS_BLOB_SIZE_DEFINE(SANDBOX_SYS_##NAME);
++
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/Blob.h b/MdeModulePkg/Universal/SandboxDxe/SystemTable/Blob.h
+new file mode 100644
+index 0000000000..53c330a367
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/Blob.h
+@@ -0,0 +1,75 @@
++#ifndef __BLOB_H__
++#define __BLOB_H__
++
++#include <Library/SandboxSyscalls.h>
++
++#define C_SYS_BLOB_DECLARE(Name, ...)                                          \
++  extern EFIAPI EFI_STATUS ASM_BLOB_##Name(__VA_ARGS__);                       \
++  extern UINTN ASM_BLOB_##Name##_SIZE
++
++#define C_SYS_BLOB_START(Name) ((VOID *)ASM_BLOB_##Name)
++#define C_SYS_BLOB_SIZE(Name) ASM_BLOB_##Name##_SIZE
++
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_RAISE_TPL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_RESTORE_TPL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_ALLOCATE_PAGES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_FREE_PAGES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_GET_MEMORY_MAP);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_ALLOCATE_POOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_FREE_POOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CREATE_EVENT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_SET_TIMER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_WAIT_FOR_EVENT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_SIGNAL_EVENT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CLOSE_EVENT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CHECK_EVENT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_REINSTALL_PROTOCOL_INTERFACE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_UNINSTALL_PROTOCOL_INTERFACE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_HANDLE_PROTOCOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_RESERVED);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_REGISTER_PROTOCOL_NOTIFY);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_LOCATE_HANDLE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_LOCATE_DEVICE_PATH);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_INSTALL_CONFIGURATION_TABLE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_IMAGE_LOAD);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_IMAGE_START);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_EXIT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_IMAGE_UNLOAD);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_EXIT_BOOT_SERVICES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_GET_NEXT_MONOTONIC_COUNT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_STALL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_SET_WATCHDOG_TIMER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CONNECT_CONTROLLER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_DISCONNECT_CONTROLLER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_OPEN_PROTOCOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CLOSE_PROTOCOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_OPEN_PROTOCOL_INFORMATION);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_PROTOCOLS_PER_HANDLE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_LOCATE_HANDLE_BUFFER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_LOCATE_PROTOCOL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CALCULATE_CRC32);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_COPY_MEM);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_SET_MEM);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_BS_CREATE_EVENT_EX);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_GET_TIME);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_SET_TIME);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_GET_WAKEUP_TIME);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_SET_WAKEUP_TIME);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_SET_VIRTUAL_ADDRESS_MAP);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_CONVERT_POINTER);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_GET_VARIABLE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_GET_NEXT_VARIABLE_NAME);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_SET_VARIABLE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_GET_NEXT_HIGH_MONO_COUNT);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_RESET_SYSTEM);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_UPDATE_CAPSULE);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_QUERY_CAPSULE_CAPABILITIES);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_QUERY_VARIABLE_INFO);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_INTERFACE_CALL);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_RT_SANDBOX_RETURN);
++C_SYS_BLOB_DECLARE(SANDBOX_SYS_NULL);
++
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/GenericBlob.S b/MdeModulePkg/Universal/SandboxDxe/SystemTable/GenericBlob.S
+new file mode 100644
+index 0000000000..0e365dd006
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/GenericBlob.S
+@@ -0,0 +1,63 @@
++#include <Library/SandboxSyscalls.h>
++#include <AsmBlob.h>
++
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_RAISE_TPL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_RESTORE_TPL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_ALLOCATE_PAGES)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_FREE_PAGES)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_GET_MEMORY_MAP)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_ALLOCATE_POOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_FREE_POOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CREATE_EVENT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_SET_TIMER)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_WAIT_FOR_EVENT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_SIGNAL_EVENT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CLOSE_EVENT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CHECK_EVENT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_INSTALL_PROTOCOL_INTERFACE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_REINSTALL_PROTOCOL_INTERFACE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_UNINSTALL_PROTOCOL_INTERFACE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_HANDLE_PROTOCOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_RESERVED)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_REGISTER_PROTOCOL_NOTIFY)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_LOCATE_HANDLE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_LOCATE_DEVICE_PATH)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_INSTALL_CONFIGURATION_TABLE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_IMAGE_LOAD)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_IMAGE_START)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_EXIT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_IMAGE_UNLOAD)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_EXIT_BOOT_SERVICES)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_GET_NEXT_MONOTONIC_COUNT)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_STALL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_SET_WATCHDOG_TIMER)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CONNECT_CONTROLLER)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_DISCONNECT_CONTROLLER)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_OPEN_PROTOCOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CLOSE_PROTOCOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_OPEN_PROTOCOL_INFORMATION)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_PROTOCOLS_PER_HANDLE)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_LOCATE_HANDLE_BUFFER)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_LOCATE_PROTOCOL)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CALCULATE_CRC32)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_COPY_MEM)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_SET_MEM)
++ASM_SYS_BLOB_GENERIC_DEFINE(BS_CREATE_EVENT_EX)
++
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_GET_TIME)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_SET_TIME)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_GET_WAKEUP_TIME)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_SET_WAKEUP_TIME)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_SET_VIRTUAL_ADDRESS_MAP)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_CONVERT_POINTER)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_GET_VARIABLE)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_GET_NEXT_VARIABLE_NAME)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_SET_VARIABLE)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_GET_NEXT_HIGH_MONO_COUNT)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_RESET_SYSTEM)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_UPDATE_CAPSULE)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_QUERY_CAPSULE_CAPABILITIES)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_QUERY_VARIABLE_INFO)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_INTERFACE_CALL)
++ASM_SYS_BLOB_GENERIC_DEFINE(RT_SANDBOX_RETURN)
++ASM_SYS_BLOB_GENERIC_DEFINE(NULL)
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/Injection.c b/MdeModulePkg/Universal/SandboxDxe/SystemTable/Injection.c
+new file mode 100644
+index 0000000000..e69de29bb2
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c b/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
+index 4b3fe9f348..6f3d2cc000 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
+@@ -6,8 +6,11 @@
+ 
+ #include <Interface/Interface.h>
+ #include <Interface/Registry.h>
++#include <Memory/Malloc.h>
+ #include <Memory/Memory.h>
++#include <PageTable.h>
+ #include <SandboxDxe.h>
++#include <SystemTable/Blob.h>
+ #include <SystemTable/SystemTable.h>
+ #include <Utils/Logger.h>
+ 
+@@ -84,6 +87,30 @@ STATIC VOID SetSystemTableProtocolInterface(IN UEFI_SANDBOX *Sandbox,
+     DstST->ConOut = NULL; // FIXME: Fix this src
+   }
+ 
++  DstST->BootServices->InstallProtocolInterface =
++      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
++          Sandbox, C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE)));
++
++  CopyMem(DstST->BootServices->InstallProtocolInterface,
++          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE),
++          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE));
++
++  DstST->BootServices->InstallMultipleProtocolInterfaces =
++      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
++          Sandbox, C_SYS_BLOB_SIZE(
++                       SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
++
++  CopyMem(DstST->BootServices->InstallMultipleProtocolInterfaces,
++          C_SYS_BLOB_START(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES),
++          C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES));
++  DstST->BootServices->UninstallMultipleProtocolInterfaces =
++      PTR_PHYS_TO_VIRT(AllocateSandboxCodeBuffer(
++          Sandbox, C_SYS_BLOB_SIZE(
++                       SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)));
++  CopyMem(
++      DstST->BootServices->UninstallMultipleProtocolInterfaces,
++      C_SYS_BLOB_START(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES),
++      C_SYS_BLOB_SIZE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES));
+   // TODO: other protocols
+ }
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/VaradicBlob.S b/MdeModulePkg/Universal/SandboxDxe/SystemTable/VaradicBlob.S
+new file mode 100644
+index 0000000000..2b004d2c61
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/VaradicBlob.S
+@@ -0,0 +1,78 @@
++#include <SystemTable/AsmBlob.h>
++#include <Library/SandboxSyscalls.h>
++
++ASM_SYS_BLOB_START_DEFINE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++  sub sp, sp, #0x40
++  str x7, [sp, #0x38]
++  str x6, [sp, #0x30]
++  str x5, [sp, #0x28]
++  str x4, [sp, #0x20]
++  str x3, [sp, #0x18]
++  str x2, [sp, #0x10]
++  str x1, [sp, #0x8]
++  str x0, [sp, #0x0]
++  mov x6, x29
++  mov x7, x30
++  add x4, sp, #0x8
++  mov x0, #16
++  mov x8, #SANDBOX_SYS_BS_RAISE_TPL
++  svc 0
++  mov x5, x0
++loop:
++  ldr x1, [x4]
++  cmp x1, #0
++  b.eq out
++  ldr x0, [sp]
++  mov x2, #0
++  ldr x3, [x4, #0x8]
++  mov x8, #SANDBOX_SYS_BS_INSTALL_PROTOCOL_INTERFACE
++  svc 0
++  cmp x0, #0
++  b.ne out
++  add x4, x4, #0x10
++  b loop
++out:
++  mov x0, x5
++  mov x8, #SANDBOX_SYS_BS_RESTORE_TPL
++  svc 0
++  add sp, sp, #0x40
++  mov x29, x6
++  mov x30, x7
++  ret
++ASM_SYS_BLOB_END_DEFINE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++ASM_SYS_BLOB_SIZE_DEFINE(SANDBOX_SYS_BS_INSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++
++ASM_SYS_BLOB_START_DEFINE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++  sub sp, sp, #0x40
++  str x7, [sp, #0x38]
++  str x6, [sp, #0x30]
++  str x5, [sp, #0x28]
++  str x4, [sp, #0x20]
++  str x3, [sp, #0x18]
++  str x2, [sp, #0x10]
++  str x1, [sp, #0x8]
++  str x0, [sp, #0x0]
++  mov x6, x29
++  mov x7, x30
++  add x4, sp, #0x8
++loop2:
++  ldr x1, [x4]
++  cmp x1, #0
++  b.eq out2
++  ldr x0, [sp]
++  mov x2, #0
++  ldr x3, [x4, #0x8]
++  mov x8, #SANDBOX_SYS_BS_UNINSTALL_PROTOCOL_INTERFACE
++  svc 0
++  cmp x0, #0
++  b.ne out2
++  add x4, x4, #0x10
++  b loop2
++out2:
++  add sp, sp, #0x40
++  mov x29, x6
++  mov x30, x7
++  ret
++ASM_SYS_BLOB_END_DEFINE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++ASM_SYS_BLOB_SIZE_DEFINE(SANDBOX_SYS_BS_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES)
++
+-- 
+2.48.1
+

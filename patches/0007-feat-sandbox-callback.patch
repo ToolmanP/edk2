@@ -1,0 +1,654 @@
+From ba2b580a981b5a2f93252ed1636be9dc90da4671 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Fri, 28 Feb 2025 17:46:40 +0800
+Subject: [PATCH 07/13] feat: sandbox callback
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../Include/Library/SandboxSyscalls.h         |   2 +-
+ .../SandboxDxe/BinaryGen/AArch64/BinaryGen.c  |  36 ++++-
+ .../SandboxDxe/BinaryGen/BinaryGen.h          |   5 +
+ .../SandboxDxe/Interface/Duplicate.c          | 134 ++++--------------
+ .../SandboxDxe/Interface/Duplicate.h          |  12 +-
+ .../Universal/SandboxDxe/Interface/Jumper.c   |  16 +--
+ .../Universal/SandboxDxe/Interface/Jumper.h   |   9 +-
+ .../SandboxDxe/Interface/Speculate.c          |  99 +++++++++++++
+ .../Universal/SandboxDxe/SandboxDxe.inf       |   1 +
+ .../SandboxDxe/Service/ServiceManager.c       |  91 ++++++++----
+ 10 files changed, 249 insertions(+), 156 deletions(-)
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Speculate.c
+
+diff --git a/MdeModulePkg/Include/Library/SandboxSyscalls.h b/MdeModulePkg/Include/Library/SandboxSyscalls.h
+index 95c2bed6eb..2541967238 100644
+--- a/MdeModulePkg/Include/Library/SandboxSyscalls.h
++++ b/MdeModulePkg/Include/Library/SandboxSyscalls.h
+@@ -87,7 +87,7 @@
+ #define SANDBOX_SYS_RT_INTERFACE_CALL 58
+ /* debug use */
+ #define SANDBOX_SYS_RT_SANDBOX_RETURN 59
+-
++#define SANDBOX_SYS_RT_SANDBOX_EXEC_CALLBACK 60
+ #define SANDBOX_SYS_NULL 61
+ 
+ #endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/AArch64/BinaryGen.c b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/AArch64/BinaryGen.c
+index 868b33eaf5..3ca7440e5f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/AArch64/BinaryGen.c
++++ b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/AArch64/BinaryGen.c
+@@ -8,6 +8,7 @@
+ 
+ CONST UINT64 ENTRY_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
+ CONST UINT64 RETURN_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
++CONST UINT64 CALLBACK_TRAMPOLINE_SIZE = 64 * sizeof(UINT32);
+ 
+ STATIC UINT32 TrampolinePrelude(IN UINT32 *Cursor) {
+   STATIC CONST UINT32 Ins[] = {
+@@ -116,9 +117,9 @@ STATIC UINT32 TrampolineMoveRegister(IN UINT32 *Cursor, IN CONST UINT32 Src,
+ // A Transparent Trampoline SVC that is injects into the original interace call.
+ // Token (Interface ID) -> Sandbox's Protocol Interface
+ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
+-                                            IN CONST UINT64 Located,
+-                                            IN CONST UINT64 Offset,
+-                                            IN BOOLEAN ForCore) {
++                                          IN CONST UINT64 Located,
++                                          IN CONST UINT64 Offset,
++                                          IN BOOLEAN ForCore) {
+   UINT32 Count;
+   UINT32 *Trampoline;
+   Count = 0;
+@@ -136,8 +137,31 @@ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
+   return Trampoline;
+ }
+ 
++VOID *CreateCallbackTrampoline(IN UEFI_SANDBOX *Sandbox,
++                               IN CONST UINT64 ReflectFunc,
++                               IN CONST UINT64 CalleeID,
++                               IN CONST UINT64 FuncAddress) {
++
++  UINT32 Count;
++  UINT32 *Trampoline;
++  Count = 0;
++  Trampoline = AllocateSandboxCodeBuffer(Sandbox, ENTRY_TRAMPOLINE_SIZE);
++  Count += TrampolinePrelude(Trampoline + Count);
++  Count += TrampolinePreserveContext(Trampoline + Count);
++  Count += TrampolineMovImmediateReg(Trampoline + Count, ReflectFunc, 0);
++  Count += TrampolineMovImmediateReg(Trampoline + Count, CalleeID, 1);
++  Count += TrampolineMovImmediateReg(Trampoline + Count, FuncAddress, 2);
++  Count += TrampolineCopyStackPointer(Trampoline + Count, 3);
++  Count += TrampolineMovImmediateReg(Trampoline + Count,
++                                     SANDBOX_SYS_RT_SANDBOX_EXEC_CALLBACK, 8);
++  Count += TrampolineSVC(Trampoline + Count);
++  Count += TrampolineRestoreContext(Trampoline + Count);
++  Count += TrampolinePostlude(Trampoline + Count);
++  return Trampoline;
++}
++
+ VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
+-                                      IN CONST UINT64 JumpContext) {
++                                    IN CONST UINT64 JumpContext) {
+   UINT32 Count;
+   UINT32 *Trampoline;
+   Count = 0;
+@@ -148,6 +172,8 @@ VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
+   Count += TrampolineMovImmediateReg(Trampoline + Count,
+                                      SANDBOX_SYS_RT_SANDBOX_RETURN, 8);
+   Count += TrampolineSVC(Trampoline + Count);
+-  Count += TrampolinePostlude(Trampoline + Count); // FIXME: Psuedo Return Required by QEMU So that the boundary check is correct?
++  Count += TrampolinePostlude(Trampoline +
++                              Count); // FIXME: Psuedo Return Required by QEMU
++                                      // So that the boundary check is correct?
+   return Trampoline;
+ }
+diff --git a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
+index 494bb72eb5..10719cbf7c 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
++++ b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
+@@ -10,4 +10,9 @@ VOID *CreateInterfaceEntryPointTrampoline(IN UEFI_SANDBOX *Sandbox,
+ 
+ VOID *CreateSandboxReturnTrampoline(IN UEFI_SANDBOX *Sandbox,
+                                       IN CONST UINT64 JumpContext);
++
++VOID *CreateCallbackTrampoline(IN UEFI_SANDBOX *Sandbox,
++                               IN CONST UINT64 ReflectFunc,
++                               IN CONST UINT64 CalleeID,
++                               IN CONST UINT64 FuncAddress);
+ #endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+index c8df6e7d2f..d75e743bd4 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+@@ -2,6 +2,7 @@
+ #include <Library/DebugLib.h>
+ #include <Library/MemoryAllocationLib.h>
+ 
++#include <BinaryGen/BinaryGen.h>
+ #include <Interface/Duplicate.h>
+ #include <Interface/Interface.h>
+ #include <Interface/PointerList.h>
+@@ -15,99 +16,6 @@ STATIC EFI_STATUS EagerDuplicateTypePointer(IN DUPLICATE_CTX *Ctx,
+                                             IN CONST EFI_VIRTUAL_ADDRESS Src,
+                                             OUT EFI_VIRTUAL_ADDRESS *Dst);
+ 
+-STATIC BOOLEAN SpeculateSizeField(IN CONST CHAR8 *TargetName,
+-                                  IN CONST CHAR8 *SizeName) {
+-  UINTN FieldLen = AsciiStrLen(TargetName);
+-  if (AsciiStrLen(SizeName) < FieldLen) {
+-    return FALSE;
+-  }
+-
+-  if (AsciiStrnCmp(TargetName, SizeName, FieldLen) != 0) {
+-    return FALSE;
+-  }
+-
+-  return AsciiStrCmp(SizeName + FieldLen, "Length") == 0 ||
+-         AsciiStrCmp(SizeName + FieldLen, "Size") == 0 ||
+-         AsciiStrCmp(SizeName + FieldLen, "Count") == 0;
+-}
+-
+-UINT64 SpeculateTypeFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
+-                                   IN CONST REFLECT_TYPE *Type,
+-                                   CONST CHAR8 *FieldName) {
+-  EFI_PHYSICAL_ADDRESS PhysTypeBase;
+-  REFLECT_FIELD *Field;
+-  LIST_ENTRY *Link;
+-  UINT64 Size;
+-
+-  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
+-  Size = 1;
+-  BASE_LIST_FOR_EACH(Link, &Type->CustomType->Fields) {
+-    Field = BASE_CR(Link, REFLECT_FIELD, FieldNode);
+-    if (SpeculateSizeField(FieldName, Field->FieldName)) {
+-      ASSERT(Field->FieldType->Kind == BasicTypeKind);
+-      ASSERT(Field->FieldType->BasicType->TypeSize <= 8);
+-      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
+-              Field->FieldType->BasicType->TypeSize);
+-      break;
+-    }
+-  }
+-  return Size;
+-}
+-
+-UINT64
+-SpeculateProtocolFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
+-                                IN CONST REFLECT_PROTOCOL *Protocol,
+-                                CONST CHAR8 *FieldName) {
+-  EFI_PHYSICAL_ADDRESS PhysTypeBase;
+-  REFLECT_PROTOCOL_FIELD *Field;
+-  LIST_ENTRY *Link;
+-  UINT64 Size;
+-
+-  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
+-  Size = 1;
+-  BASE_LIST_FOR_EACH(Link, &Protocol->FieldsList) {
+-    Field = BASE_CR(Link, REFLECT_PROTOCOL_FIELD, ProtocolFieldNode);
+-    if (Field->IsFunction)
+-      continue;
+-    if (SpeculateSizeField(FieldName, Field->Variable->VariableName)) {
+-      ASSERT(Field->Variable->VariableType->Kind == BasicTypeKind);
+-      ASSERT(Field->Variable->VariableType->BasicType->TypeSize <= 8);
+-      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
+-              Field->Variable->VariableType->BasicType->TypeSize);
+-      break;
+-    }
+-  }
+-  return Size;
+-}
+-
+-STATIC UINTN SpeculateFunctionParamArraySize(
+-    IN CONST UINT64 *Params, IN CONST REFLECT_FUNC_TYPE *Function,
+-    IN CONST REFLECT_PARAM *PointerParam) {
+-  LIST_ENTRY *Link;
+-  REFLECT_PARAM *Param;
+-  UINT64 Size = 1;
+-  UINTN Index = 0;
+-  BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
+-    Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
+-    if (SpeculateSizeField(PointerParam->ParamName, Param->ParamName)) {
+-      ASSERT(Param->ParamType->Kind == BasicTypeKind);
+-      ASSERT(Param->ParamType->BasicType->TypeSize <= 8);
+-      if (Param->PointerLevel != 0) {
+-        ASSERT(Param->PointerLevel == 1);
+-        CopyMem(&Size, (VOID *)Params[Index],
+-                Param->ParamType->BasicType->TypeSize);
+-      } else {
+-
+-        CopyMem(&Size, (VOID *)&(Params[Index]),
+-                Param->ParamType->BasicType->TypeSize);
+-      }
+-      break;
+-    }
+-    Index++;
+-  }
+-  return Size;
+-}
+-
+ EFI_STATUS EagerDuplicateCustomTypeField(
+     IN DUPLICATE_CTX *Ctx, IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
+     IN CONST EFI_VIRTUAL_ADDRESS Offset, IN CONST UINTN TypeArraySize,
+@@ -414,8 +322,7 @@ STATIC EFI_STATUS CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
+                                    IN CONST REFLECT_FUNC_TYPE *Function,
+                                    IN CONST REFLECT_PARAM *Param,
+                                    IN CONST UINT64 *Src, OUT UINT64 *Dst,
+-                                   IN CONST UINT64 Index,
+-                                   IN CONST BOOLEAN Alloc) {
++                                   IN CONST UINT64 Index) {
+ 
+   EFI_VIRTUAL_ADDRESS NextVirtDst;
+   EFI_PHYSICAL_ADDRESS NextPhysDst;
+@@ -567,9 +474,9 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
+                           Dst[Index], (UINT64)&Dst[Index], MemSize, FALSE);
+ }
+ 
+-EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+-                                   IN CONST REFLECT_FUNC_TYPE *Function,
+-                                   IN CONST UINT64 *Src, OUT UINT64 *Dst) {
++EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
++                             IN CONST REFLECT_FUNC_TYPE *Func,
++                             IN CONST UINT64 *Src, OUT UINT64 *Dst) {
+   REFLECT_PARAM *Param;
+   LIST_ENTRY *Link;
+   UINTN Index;
+@@ -582,9 +489,26 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+ 
+   Status = EFI_SUCCESS;
+   Index = 0;
+-  BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
++  BASE_LIST_FOR_EACH(Link, &Func->FunctionParams) {
+     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
+     ASSERT(Param->OutParam || Param->InParam);
++
++    if (AsciiStrCmp(Param->ParamName, "Context") == 0) {
++      Dst[Index] = Src[Index];
++      continue;
++    }
++
++    if (AsciiStrStr(Param->ParamName, "CallBack") != NULL) {
++      ASSERT(Param->ParamType->Kind == FunctionKind);
++      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)CreateCallbackTrampoline(
++          Ctx->PointerList->SrcSandbox, (UINTN)Param->ParamType->Function,
++          Ctx->PointerList->DstSandbox->SandboxID, Src[Index]));
++      InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
++                              Dst[Index], (UINTN)&Src[Index], sizeof(UINTN),
++                              FALSE);
++      continue;
++    }
++
+     if (Param->ParamType->Kind == ProtocolKind) {
+       // Src[i] With Real Protocol Interface Counterpart find this protocol in
+       // the protocol list;
+@@ -602,6 +526,7 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+           goto out;
+       }
+     } else {
++
+       if (Param->PointerLevel > 0) {
+ 
+         if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
+@@ -613,8 +538,7 @@ EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+                                   sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
+         } else {
+           Ctx->Syncable = Param->OutParam;
+-          Status =
+-              CopyOneCallParam(Ctx, Function, Param, Src, Dst, Index, TRUE);
++          Status = CopyOneCallParam(Ctx, Func, Param, Src, Dst, Index);
+ 
+           if (EFI_ERROR(Status))
+             goto out;
+@@ -664,10 +588,10 @@ EFI_STATUS AllocatePersistentLocatedInterface(
+                                &LocatedInterface->Magisk);
+ }
+ 
+-VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
+-                             IN UEFI_SANDBOX *CalleeSandbox,
+-                             IN CONST REFLECT_FUNC_TYPE *Function,
+-                             IN CONST UINT64 *Dst, OUT UINT64 *Src) {
++VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
++                       IN UEFI_SANDBOX *CalleeSandbox,
++                       IN CONST REFLECT_FUNC_TYPE *Function,
++                       IN CONST UINT64 *Dst, OUT UINT64 *Src) {
+ 
+   LOCATED_INTERFACE *Located;
+   REFLECT_PARAM *Param;
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.h
+index 6df71a80b3..2b80a37ec2 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.h
+@@ -24,10 +24,11 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
+                                           IN CONST EFI_VIRTUAL_ADDRESS Src,
+                                           OUT EFI_VIRTUAL_ADDRESS *Dst,
+                                           IN CONST UINTN PointerLevels);
+-EFI_STATUS CopyInterfaceCallParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+-                             IN CONST REFLECT_FUNC_TYPE *Function,
+-                             IN CONST UINT64 *Src, OUT UINT64 *Dst);
+-VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
++EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
++                                   IN CONST REFLECT_FUNC_TYPE *Function,
++                                   IN CONST UINT64 *Src, OUT UINT64 *Dst);
++
++VOID SyncCalloutParams(IN UEFI_SANDBOX *CallerSandbox,
+                              IN UEFI_SANDBOX *CalleeSandbox,
+                              IN CONST REFLECT_FUNC_TYPE *Function,
+                              IN CONST UINT64 *Dst, OUT UINT64 *Src);
+@@ -39,4 +40,7 @@ UINT64
+ SpeculateProtocolFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
+                                 IN CONST REFLECT_PROTOCOL *Protocol,
+                                 CONST CHAR8 *FieldName);
++UINTN SpeculateFunctionParamArraySize(IN CONST UINT64 *Params,
++                                      IN CONST REFLECT_FUNC_TYPE *Function,
++                                      IN CONST REFLECT_PARAM *PointerParam);
+ #endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+index 3437f55d32..0f332a1a92 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+@@ -35,17 +35,13 @@ DumpInterfaceContext(INTERFACE_CONTEXT *Context) {
+ #endif
+ }
+ 
+-EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
+-                          IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
++EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
++                          IN CONST UINT64 *Params) {
+   EFI_STATUS Status;
+   UEFI_SANDBOX *CallerSandbox;
+   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+ 
+-  Status = CallCoreFunc(
+-      Params,
+-      *(EFI_PHYSICAL_ADDRESS *)(TO_PHYS_ADDR((EFI_VIRTUAL_ADDRESS)
+-                                                 Located->Sandboxed->Opaque) +
+-                                Offset));
++  Status = CallCoreFunc(Params, FuncAddress);
+   ScheduleToSandboxInternal(CallerSandbox, TRUE);
+   return Status;
+ }
+@@ -56,8 +52,8 @@ EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
+  * caller.
+  */
+ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+-                             IN CONST LOCATED_INTERFACE *Located,
+-                             IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
++                             IN CONST UINTN FuncAddress,
++                             IN CONST UINT64 *Params) {
+ 
+   INTERFACE_CONTEXT Context;
+   UINTN SetJumpFlag;
+@@ -98,7 +94,7 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+     CopyMem(&Context.EntryParams, Params, 8 * sizeof(UINT64));
+     Context.EntryParams.LR =
+         TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
+-    Context.EntryParams.ELR = *(UINTN *)(Located->Sandboxed->Opaque + Offset);
++    Context.EntryParams.ELR = FuncAddress;
+     Context.EntryParams.SPSR = SPSR_EL1_USER;
+     Context.EntryParams.SP =
+         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.h
+index 6aa8d8adc9..bd3d1aade8 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.h
+@@ -7,9 +7,10 @@
+ typedef InterfaceContext INTERFACE_CONTEXT;
+ 
+ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+-                             IN CONST LOCATED_INTERFACE *Located,
+-                             IN CONST UINT64 *Params, IN CONST UINT64 Offset);
+-EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
+-                          IN CONST UINT64 *Params, IN CONST UINT64 Offset);
++                             IN CONST UINT64 FuncAddress,
++                             IN CONST UINT64 *Params);
++
++EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
++                          IN CONST UINT64 *Params);
+ 
+ #endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Speculate.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Speculate.c
+new file mode 100644
+index 0000000000..766712c7a8
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Speculate.c
+@@ -0,0 +1,99 @@
++
++#include <Interface/Duplicate.h>
++#include <Memory/Memory.h>
++
++#include <Library/DebugLib.h>
++#include <Library/BaseMemoryLib.h>
++
++STATIC BOOLEAN SpeculateSizeField(IN CONST CHAR8 *TargetName,
++                                  IN CONST CHAR8 *SizeName) {
++  UINTN FieldLen = AsciiStrLen(TargetName);
++  if (AsciiStrLen(SizeName) < FieldLen) {
++    return FALSE;
++  }
++
++  if (AsciiStrnCmp(TargetName, SizeName, FieldLen) != 0) {
++    return FALSE;
++  }
++
++  return AsciiStrCmp(SizeName + FieldLen, "Length") == 0 ||
++         AsciiStrCmp(SizeName + FieldLen, "Size") == 0 ||
++         AsciiStrCmp(SizeName + FieldLen, "Count") == 0;
++}
++
++UINT64 SpeculateTypeFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
++                                   IN CONST REFLECT_TYPE *Type,
++                                   CONST CHAR8 *FieldName) {
++  EFI_PHYSICAL_ADDRESS PhysTypeBase;
++  REFLECT_FIELD *Field;
++  LIST_ENTRY *Link;
++  UINT64 Size;
++
++  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
++  Size = 1;
++  BASE_LIST_FOR_EACH(Link, &Type->CustomType->Fields) {
++    Field = BASE_CR(Link, REFLECT_FIELD, FieldNode);
++    if (SpeculateSizeField(FieldName, Field->FieldName)) {
++      ASSERT(Field->FieldType->Kind == BasicTypeKind);
++      ASSERT(Field->FieldType->BasicType->TypeSize <= 8);
++      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
++              Field->FieldType->BasicType->TypeSize);
++      break;
++    }
++  }
++  return Size;
++}
++
++UINT64
++SpeculateProtocolFieldArraySize(IN CONST EFI_VIRTUAL_ADDRESS VirtTypeBase,
++                                IN CONST REFLECT_PROTOCOL *Protocol,
++                                CONST CHAR8 *FieldName) {
++  EFI_PHYSICAL_ADDRESS PhysTypeBase;
++  REFLECT_PROTOCOL_FIELD *Field;
++  LIST_ENTRY *Link;
++  UINT64 Size;
++
++  PhysTypeBase = TO_PHYS_ADDR(VirtTypeBase);
++  Size = 1;
++  BASE_LIST_FOR_EACH(Link, &Protocol->FieldsList) {
++    Field = BASE_CR(Link, REFLECT_PROTOCOL_FIELD, ProtocolFieldNode);
++    if (Field->IsFunction)
++      continue;
++    if (SpeculateSizeField(FieldName, Field->Variable->VariableName)) {
++      ASSERT(Field->Variable->VariableType->Kind == BasicTypeKind);
++      ASSERT(Field->Variable->VariableType->BasicType->TypeSize <= 8);
++      CopyMem(&Size, (VOID *)(PhysTypeBase + Field->Offset),
++              Field->Variable->VariableType->BasicType->TypeSize);
++      break;
++    }
++  }
++  return Size;
++}
++
++UINTN SpeculateFunctionParamArraySize(
++    IN CONST UINT64 *Params, IN CONST REFLECT_FUNC_TYPE *Function,
++    IN CONST REFLECT_PARAM *PointerParam) {
++  LIST_ENTRY *Link;
++  REFLECT_PARAM *Param;
++  UINT64 Size = 1;
++  UINTN Index = 0;
++  BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
++    Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
++    if (SpeculateSizeField(PointerParam->ParamName, Param->ParamName)) {
++      ASSERT(Param->ParamType->Kind == BasicTypeKind);
++      ASSERT(Param->ParamType->BasicType->TypeSize <= 8);
++      if (Param->PointerLevel != 0) {
++        ASSERT(Param->PointerLevel == 1);
++        CopyMem(&Size, (VOID *)Params[Index],
++                Param->ParamType->BasicType->TypeSize);
++      } else {
++
++        CopyMem(&Size, (VOID *)&(Params[Index]),
++                Param->ParamType->BasicType->TypeSize);
++      }
++      break;
++    }
++    Index++;
++  }
++  return Size;
++}
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index fa7e673171..15f1c5e322 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -44,6 +44,7 @@
+   Interface/Jumper.h
+   Interface/Magisk.c
+   Interface/Registry.c
++  Interface/Speculate.c
+   Interface/Interface.h
+   Interface/Duplicate.c
+   Interface/Jumper.c
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c b/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
+index 896c54ea55..3c7bc325df 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
+@@ -582,6 +582,43 @@ SandboxQueryVariableInfo(IN UINT32 Attributes,
+   __unimplemented();
+ }
+ 
++EFI_STATUS SandboxFuncCallout(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
++                              IN CONST REFLECT_FUNC_TYPE *Func,
++                              IN UINT64 FuncAddress,
++                              IN UINT64 *CallSiteParams) {
++  EFI_STATUS Status;
++  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
++  UINT64 Params[8];
++
++  CallerSandbox = Ctx->PointerList->SrcSandbox;
++  CalleeSandbox = Ctx->PointerList->DstSandbox;
++
++  Status = CopyCalloutParams(Ctx, Opaque, Func, CallSiteParams, Params);
++  if (EFI_ERROR(Status)) {
++    FreePointerRecordList(Ctx->PointerList, POINTER_SYNC_TYPE_NONE);
++    ScheduleToSandboxInternal(CallerSandbox, TRUE);
++    return Status;
++  }
++
++  if (CalleeSandbox == &CoreSandbox) {
++    PointerRecordSiteToPhys(Ctx->PointerList); // We should change the virtual
++                                               // address to physical address
++    Status = JumpToCoreFunc(FuncAddress, Params);
++  } else {
++    Status = JumpToSandboxFunc(CalleeSandbox, FuncAddress, Params);
++  }
++
++  // SyncInterfaceMagisk(&Located->Magisk);
++  if (!EFI_ERROR(Status))
++    SyncCalloutParams(CallerSandbox, CalleeSandbox, Func, Params,
++                      CallSiteParams);
++
++  FreePointerRecordList(Ctx->PointerList, POINTER_SYNC_DST_TO_SRC);
++  ScheduleToSandboxInternal(CallerSandbox, TRUE);
++
++  return Status;
++}
++
+ EFI_STATUS
+ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
+                      IN UINT64 *CallSiteParams) {
+@@ -591,7 +628,7 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
+   POINTER_LIST PointerList;
+   EFI_STATUS Status = EFI_SUCCESS;
+   DUPLICATE_CTX Ctx;
+-  UINT64 Params[8];
++  UINT64 FuncAddress;
+ 
+   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+ 
+@@ -611,34 +648,12 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
+                         .Syncable = TRUE};
+ 
+   Status = GetFunctionByOffset(Located->Desc, Offset, &Func);
+-
+   ASSERT_EFI_ERROR(Status);
+ 
+-  Status = CopyInterfaceCallParams(&Ctx, Located->Sandboxed->Opaque, Func,
+-                                   CallSiteParams, Params);
+-
+-  if (EFI_ERROR(Status)) {
+-    FreePointerRecordList(&PointerList, POINTER_SYNC_TYPE_NONE);
+-    ScheduleToSandboxInternal(CallerSandbox, TRUE);
+-    return Status;
+-  }
+-
+-  if (CalleeSandbox == &CoreSandbox) {
+-    PointerRecordSiteToPhys(&PointerList); // We should change the virtual
+-                                           // address to physical address
+-    Status = JumpToCoreFunc(Located, Params, Offset);
+-  } else {
+-    ASSERT(Offset < Located->Sandboxed->Desc->ProtocolSize);
+-    Status = JumpToSandboxFunc(CalleeSandbox, Located, Params, Offset);
+-  }
+-
+-  // SyncInterfaceMagisk(&Located->Magisk);
+-  if (!EFI_ERROR(Status))
+-    SyncInterfaceCallParams(CallerSandbox, CalleeSandbox, Func, Params,
+-                            CallSiteParams);
+-  FreePointerRecordList(&PointerList, POINTER_SYNC_DST_TO_SRC);
+-  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+-
++  FuncAddress = *(UINTN *)TO_PHYS_ADDR(
++      (EFI_VIRTUAL_ADDRESS)(Located->Sandboxed->Opaque + Offset));
++  Status = SandboxFuncCallout(&Ctx, Located->Sandboxed->Opaque, Func,
++                              FuncAddress, CallSiteParams);
+ #if SANDBOX_PERF_INTERFACE_CALL
+   Val2 = ReadCounter();
+   SBPrint("Perf Elapsed Counters : %lu\n", Val2 - Val1);
+@@ -646,6 +661,27 @@ SandboxInterfaceCall(IN LocatedInterface *Located, IN UINT64 Offset,
+   return Status;
+ }
+ 
++EFI_STATUS
++SandboxExecuteCallback(IN REFLECT_FUNC_TYPE *Func, IN UINTN CalleeID,
++                       IN UINTN FuncAddress, UINTN *CallSiteParams) {
++  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
++  POINTER_LIST PointerList;
++  DUPLICATE_CTX Ctx;
++  EFI_STATUS Status;
++
++  CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
++  CalleeSandbox = (CalleeID == 0) ? &CoreSandbox : FindSandbox(CalleeID);
++  InitPointerRecordList(&PointerList, CallerSandbox, CalleeSandbox);
++
++  Ctx = (DUPLICATE_CTX){.PointerList = &PointerList,
++                        .CurrentType = NULL,
++                        .InUnion = FALSE,
++                        .Syncable = TRUE};
++  Status = SandboxFuncCallout(&Ctx, NULL, Func, FuncAddress, CallSiteParams);
++
++  return Status;
++}
++
+ #if defined(__x86_64__)
+ extern UINT64 CurrentCpuInfoIndex;
+ #endif
+@@ -760,5 +796,6 @@ const VOID *SandboxServicesManager[NR_SYSCALL] = {
+         SandboxQueryVariableInfo, // QueryVariableInfo
+     [SANDBOX_SYS_RT_INTERFACE_CALL] = SandboxInterfaceCall,
+     [SANDBOX_SYS_RT_SANDBOX_RETURN] = SandboxReturnFromSandbox,
++    [SANDBOX_SYS_RT_SANDBOX_EXEC_CALLBACK] = SandboxExecuteCallback,
+     [SANDBOX_SYS_NULL... NR_SYSCALL - 1] = SandboxSyscallNull,
+ };
+-- 
+2.48.1
+

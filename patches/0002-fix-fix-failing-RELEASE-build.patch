@@ -1,0 +1,695 @@
+From 07be3e230fbff21dcbf8074bd3d4ef35a46720a0 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Thu, 27 Feb 2025 14:16:44 +0800
+Subject: [PATCH 02/13] fix: fix failing RELEASE build
+
+ASSERT will drop the evaluation of the expression.
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ MdeModulePkg/Core/Dxe/Event/Event.c           | 18 +++--
+ .../Universal/SandboxDxe/Event/Notify.c       |  2 +-
+ .../SandboxDxe/Exception/AArch64/irq.S        | 26 +++----
+ .../SandboxDxe/Exception/Exception.h          | 69 +++++++++----------
+ .../SandboxDxe/Interface/AArch64/Caller.S     | 18 ++---
+ .../SandboxDxe/Interface/Duplicate.c          | 10 +--
+ .../SandboxDxe/Interface/Interface.h          |  1 +
+ .../Universal/SandboxDxe/Interface/Jumper.c   | 31 ++++-----
+ .../Universal/SandboxDxe/Interface/Registry.c | 12 ++--
+ .../Universal/SandboxDxe/SandboxDxe.c         | 32 ++++-----
+ .../Universal/SandboxDxe/Sched/Sched.c        | 14 ++--
+ .../SandboxDxe/Service/ServiceManager.c       |  8 +--
+ .../SandboxDxe/SystemTable/SystemTable.c      |  4 +-
+ .../Universal/SandboxDxe/Utils/Logger.h       | 25 +++++--
+ 14 files changed, 140 insertions(+), 130 deletions(-)
+
+diff --git a/MdeModulePkg/Core/Dxe/Event/Event.c b/MdeModulePkg/Core/Dxe/Event/Event.c
+index 7226455153..c8b3a08c73 100644
+--- a/MdeModulePkg/Core/Dxe/Event/Event.c
++++ b/MdeModulePkg/Core/Dxe/Event/Event.c
+@@ -141,16 +141,20 @@ CoreInitializeEventServices (
+   return EFI_SUCCESS;
+ }
+ 
+-STATIC VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context) {
++STATIC  VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context){
+   IEVENT *IEvent;
+-  UINTN SandboxID;
+   UINT32 Type;
++  UINTN SandboxID;
++  EFI_STATUS Status;
+ 
+   IEvent = Event;
+   Type = IEvent->Type;
+   SandboxID = IEvent->SandboxID;
+-  if(gSandbox)
+-    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
++
++  if(gSandbox){ // ? gSandbox got optimized
++    Status = gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE);
++    ASSERT_EFI_ERROR(Status);
++  }
+ 
+   if(Type & EVT_RUNTIME) {
+     IEvent->RuntimeData.NotifyFunction(Event, Context);
+@@ -158,8 +162,10 @@ STATIC VOID EFIAPI Notify(IN EFI_EVENT Event, IN VOID *Context) {
+     IEvent->NotifyFunction(Event,Context);
+   }
+ 
+-  if(gSandbox)
+-    ASSERT_EFI_ERROR(gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE));
++  if(gSandbox){
++    Status = gSandbox->ScheduleToSandbox(gSandbox, &SandboxID, FALSE);
++    ASSERT_EFI_ERROR(Status);
++  }
+ }
+ 
+ /**
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Event/Notify.c b/MdeModulePkg/Universal/SandboxDxe/Event/Notify.c
+index e676ea1b41..7026391f66 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Event/Notify.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Event/Notify.c
+@@ -51,7 +51,7 @@ VOID EFIAPI SandboxGenericNotifyFunction(IN EFI_EVENT Event, IN VOID *Context) {
+     Params.ELR = (UINT64)IEvent->NotifyFunction;
+ #endif
+     CallSandboxFunc(&Params);
+-    ASSERT(0);
++    __unreachable();
+   }
+ 
+   FreeSandboxPool(CurrentSandbox, (EFI_PHYSICAL_ADDRESS)ReturnTrampoline);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/irq.S b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/irq.S
+index cce8bda676..d740278b91 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/irq.S
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/irq.S
+@@ -89,24 +89,24 @@
+ ASM_FUNC(DoSyscall)
+ 
+   stp x29, x30, [sp, #-0x10]!
+-  stp x0, x1, [sp, #-0x10]!
++  stp x19, x20, [sp, #-0x10]!
+ 
+-  mov x14, x0
+-  mov x15, x1
+-  ldp	x0, x1, [x14, #16 * 0]
+-  ldp	x2, x3, [x14, #16 * 1]
+-  ldp	x4, x5, [x14, #16 * 2]
+-  ldp	x6, x7, [x14, #16 * 3]
++  mov x19, x0
++  mov x20, x1
+ 
+-  ldr	x8, [x14, #16 * 4]
+-  ldr	x8, [x15, x8, lsl #3]		// find the syscall entry
++  ldp	x0, x1, [x19, #16 * 0]
++  ldp	x2, x3, [x19, #16 * 1]
++  ldp	x4, x5, [x19, #16 * 2]
++  ldp	x6, x7, [x19, #16 * 3]
++
++  ldr	x8, [x19, #16 * 4]
++  ldr	x8, [x20, x8, lsl #3]		// find the syscall entry
+ 
+   blr	x8
++  str x0, [x19, #16 * 0]
+ 
+-  mov x14, x0
+-  ldp x0, x1, [sp], #16
+-  str x14, [x0, #16 * 0]
+-  ldp x29, x30, [sp], #16
++  ldp x19, x20, [sp], #0x10
++  ldp x29, x30, [sp], #0x10
+   ret
+ 
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+index f1e72df790..8011da8245 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+@@ -1,35 +1,34 @@
+-#ifndef SANDBOX_EXCEPTION_H_
+-#define SANDBOX_EXCEPTION_H_
+-
+-#if defined(__x86_64__)
+-
+-VOID IretToSandbox(EFI_SYSTEM_CONTEXT_X64 *Context);
+-#elif defined(__aarch64__)
+-/* Registers */
+-#define SPSR_EL1_EL0t               0b0000
+-#define SPSR_EL1_EL1t               0b0100
+-#define SPSR_EL1_EL1h               0b0101
+-
+-#define SPSR_EL1_KERNEL             SPSR_EL1_EL1h
+-#define SPSR_EL1_USER               SPSR_EL1_EL0t
+-
+-VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
+-#endif
+-
+-#define SANDBOX_RETURN_ADDRESS     0xffffbeefbeef
+-#define SANDBOX_TRAMPOLINE_RETURN_ADDRESS   0xffffcafecafe
+-
+-
+-#define EXCEPTION_INSTRUCTION_ABORT 0x100
+-#define EXCEPTION_DATA_ABORT 0x200
+-
+-/*
+- * Exceptions handled by sandbox core
+- */
+-#define EXCEPTION_SYSTEM_CALL 0
+-#define EXCEPTION_SANDBOX_RETURN 1
+-#define EXCEPTION_INSTRUCTION_PERMISSION_FAULT 2
+-
+-EFI_STATUS RegisterSyncExceptionHandler (BOOLEAN Unregister);
+-
+-#endif // SANDBOX_EXCEPTION_H_
+\ No newline at end of file
++#ifndef SANDBOX_EXCEPTION_H_
++#define SANDBOX_EXCEPTION_H_
++
++#if defined(__x86_64__)
++
++VOID IretToSandbox(EFI_SYSTEM_CONTEXT_X64 *Context);
++#elif defined(__aarch64__)
++/* Registers */
++#define SPSR_EL1_EL0t 0b0000
++#define SPSR_EL1_EL1t 0b0100
++#define SPSR_EL1_EL1h 0b0101
++
++#define SPSR_EL1_KERNEL SPSR_EL1_EL1h
++#define SPSR_EL1_USER SPSR_EL1_EL0t
++
++VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
++#endif
++
++#define SANDBOX_RETURN_ADDRESS 0xffffbeefbeef
++#define SANDBOX_TRAMPOLINE_RETURN_ADDRESS 0xffffcafecafe
++
++#define EXCEPTION_INSTRUCTION_ABORT 0x100
++#define EXCEPTION_DATA_ABORT 0x200
++
++/*
++ * Exceptions handled by sandbox core
++ */
++#define EXCEPTION_SYSTEM_CALL 0
++#define EXCEPTION_SANDBOX_RETURN 1
++#define EXCEPTION_INSTRUCTION_PERMISSION_FAULT 2
++
++EFI_STATUS RegisterSyncExceptionHandler(BOOLEAN Unregister);
++
++#endif // SANDBOX_EXCEPTION_H_
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/AArch64/Caller.S b/MdeModulePkg/Universal/SandboxDxe/Interface/AArch64/Caller.S
+index ee7df1dc8f..83a852e41f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/AArch64/Caller.S
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/AArch64/Caller.S
+@@ -7,19 +7,19 @@
+ // Callee saved registers: x19-x29, x30
+ ASM_FUNC(CallCoreFunc)
+     stp x29, x30, [sp, #-0x10]!
+-    stp x15, x16, [sp, #-0x10]!
++    stp x19, x20, [sp, #-0x10]!
+ 
+-    mov x15, x0
+-    mov x16, x1
++    mov x19, x0
++    mov x20, x1
+ 
+-    ldp x0, x1, [x15]
+-    ldp x2, x3, [x15, #0x10]
+-    ldp x4, x5, [x15, #0x20]
+-    ldp x6, x7, [x15, #0x30]
++    ldp x0, x1, [x19]
++    ldp x2, x3, [x19, #0x10]
++    ldp x4, x5, [x19, #0x20]
++    ldp x6, x7, [x19, #0x30]
+ 
+-    blr x16
++    blr x20
+ 
+-    ldp x15, x16, [sp], #0x10
++    ldp x19, x20, [sp], #0x10
+     ldp x29, x30, [sp], #0x10
+     ret
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+index 3e9f3118af..c8df6e7d2f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+@@ -403,7 +403,7 @@ EFI_STATUS EagerDuplicateTypeMultiPointer(IN DUPLICATE_CTX *Ctx,
+       Status = EagerDuplicateTypePointer(Ctx, Src, Dst);
+       break;
+     default:
+-      ASSERT(FALSE);
++      __unreachable();
+     }
+   }
+ out:
+@@ -635,7 +635,7 @@ out:
+   return Status;
+ }
+ 
+-STATIC EFI_STATUS AllocatePersistentLocatedInterface(
++EFI_STATUS AllocatePersistentLocatedInterface(
+     IN UEFI_SANDBOX *CallerSandbox, IN UEFI_SANDBOX *CalleeSandbox,
+     IN REFLECT_PROTOCOL *Protocol, IN CONST EFI_VIRTUAL_ADDRESS Delegated,
+     OUT LOCATED_INTERFACE **Located) {
+@@ -674,6 +674,7 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
+   LIST_ENTRY *Link;
+   UINTN ArraySize, Size, Index;
+   VOID *PhysSrc, *PhysDst;
++  EFI_STATUS Status;
+   Index = 0;
+ 
+   BASE_LIST_FOR_EACH(Link, &Function->FunctionParams) {
+@@ -681,9 +682,10 @@ VOID SyncInterfaceCallParams(IN UEFI_SANDBOX *CallerSandbox,
+     if (Param->ParamType->Kind == ProtocolKind && Param->OutParam) {
+       ASSERT(Param->PointerLevel == 2);
+       ASSERT(Param->ParamType->Kind = ProtocolKind);
+-      ASSERT_EFI_ERROR(AllocatePersistentLocatedInterface(
++      Status = AllocatePersistentLocatedInterface(
+           CallerSandbox, CalleeSandbox, Param->ParamType->Protocol,
+-          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located));
++          *(EFI_VIRTUAL_ADDRESS *)Dst[Index], &Located);
++      ASSERT_EFI_ERROR(Status);
+       *(VOID **)TO_PHYS_ADDR(Src[Index]) = Located->Magisk.Interface;
+     } else {
+       if (Param->PointerLevel > 1 && Param->OutParam) {
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Interface.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Interface.h
+index f52eef1901..dedae2538d 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Interface.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Interface.h
+@@ -66,6 +66,7 @@ typedef struct {
+   EFI_PHYSICAL_ADDRESS StackBase;
+   /* Return Trampoline */
+   VOID *ReturnTrampoline;
++  UEFI_SANDBOX *CallerSandbox, *CalleeSandbox;
+ } InterfaceContext;
+ 
+ typedef InterfaceContext INTERFACE_CONTEXT;
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+index 987bb2e317..3437f55d32 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+@@ -46,7 +46,7 @@ EFI_STATUS JumpToCoreFunc(IN CONST LOCATED_INTERFACE *Located,
+       *(EFI_PHYSICAL_ADDRESS *)(TO_PHYS_ADDR((EFI_VIRTUAL_ADDRESS)
+                                                  Located->Sandboxed->Opaque) +
+                                 Offset));
+-  ASSERT(&CoreSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
++  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+   return Status;
+ }
+ 
+@@ -59,26 +59,26 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+                              IN CONST LOCATED_INTERFACE *Located,
+                              IN CONST UINT64 *Params, IN CONST UINT64 Offset) {
+ 
+-  UEFI_SANDBOX *CallerSandbox;
+   INTERFACE_CONTEXT Context;
+   UINTN SetJumpFlag;
+ 
+-  CallerSandbox = CurrentSandbox;
++  Context.CallerSandbox = CurrentSandbox;
++  Context.CalleeSandbox = CalleeSandbox;
+ 
+   if (CalleeSandbox == NULL)
+     __unreachable("Invalid sandbox\n");
+ 
+   /* Allocate stack */
+-  struct SandboxPages *sbPages =
+-      AllocateSandboxPages(CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
+-                           DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
++  struct SandboxPages *sbPages = AllocateSandboxPages(
++      Context.CalleeSandbox, AllocateAnyPages, EfiBootServicesData,
++      DEFAULT_STACK_SIZE / PAGE_SIZE, &Context.StackBase);
+ 
+   Context.JumpBuffer = AllocatePool(sizeof(BASE_LIBRARY_JUMP_BUFFER) +
+                                     BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+   Context.JumpContext =
+       ALIGN_POINTER(Context.JumpBuffer, BASE_LIBRARY_JUMP_BUFFER_ALIGNMENT);
+-  Context.ReturnTrampoline =
+-      CreateSandboxReturnTrampoline(CalleeSandbox, (UINT64)Context.JumpContext);
++  Context.ReturnTrampoline = CreateSandboxReturnTrampoline(
++      Context.CalleeSandbox, (UINT64)Context.JumpContext);
+ 
+   if (Context.StackBase == 0)
+     __unreachable("Failed to allocate stack for sandbox function\n");
+@@ -99,27 +99,20 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+     Context.EntryParams.LR =
+         TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)(Context.ReturnTrampoline));
+     Context.EntryParams.ELR = *(UINTN *)(Located->Sandboxed->Opaque + Offset);
+-    if (Context.EntryParams.ELR == 0)
+-      while (1)
+-        ;
+-    if (!IS_VIRT_ADDR(Context.EntryParams.ELR)) {
+-      while (1)
+-        ;
+-    }
+     Context.EntryParams.SPSR = SPSR_EL1_USER;
+     Context.EntryParams.SP =
+         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
+ #endif
+-    ASSERT(CallerSandbox == ScheduleToSandboxInternal(CalleeSandbox, TRUE));
++    ScheduleToSandboxInternal(Context.CalleeSandbox, TRUE);
+     CallSandboxFunc(&Context.EntryParams);
+     __unreachable("Should not reach here\n");
+   }
+ 
+-  ASSERT(CalleeSandbox == ScheduleToSandboxInternal(CallerSandbox, TRUE));
+-  FreeSandboxPages(CalleeSandbox, Context.StackBase,
++  ScheduleToSandboxInternal(Context.CallerSandbox, TRUE);
++  FreeSandboxPages(Context.CalleeSandbox, Context.StackBase,
+                    DEFAULT_STACK_SIZE / PAGE_SIZE, sbPages);
+   FreePool(Context.JumpBuffer);
+-  FreeSandboxPool(CalleeSandbox,
++  FreeSandboxPool(Context.CalleeSandbox,
+                   (EFI_PHYSICAL_ADDRESS)Context.ReturnTrampoline);
+   return SetJumpFlag - 1;
+ }
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Registry.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Registry.c
+index cec92abeb7..ffcc3dc113 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Registry.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Registry.c
+@@ -115,7 +115,7 @@ EFI_STATUS InstallSandboxInterface(IN UEFI_SANDBOX *Sandbox,
+ 
+   return EFI_SUCCESS;
+ err:
+-  ASSERT(0);
++  __unreachable();
+   return Status;
+ }
+ 
+@@ -149,7 +149,7 @@ STATIC EFI_STATUS
+ FreeSandboxInterfaceEntry(IN INTERFACE_REGISTRY_ENTRY *Entry) {
+ 
+   if (Entry->Sandboxed.RefCount != 0) {
+-    ASSERT(0);
++    __unreachable();
+   }
+ 
+   /* Remove SANDBOX_INTERFACE from global list */
+@@ -196,6 +196,7 @@ STATIC VOID InitLocatedSandboxInterface(
+ 
+   REFLECT_PROTOCOL *Protocol;
+   CONST VOID *Delegated;
++  EFI_STATUS Status;
+ 
+   GetProtocol(ProtocolID, &Protocol);
+   InitPointerRecordList(&Located->Magisk.PointerList, NULL, Sandbox);
+@@ -209,8 +210,9 @@ STATIC VOID InitLocatedSandboxInterface(
+   Located->ControllerHandle = ControllerHandle;
+   Delegated = Located->Sandboxed->Opaque;
+ 
+-  ASSERT(CreateInterfaceMagisk(Protocol, (const EFI_VIRTUAL_ADDRESS)Delegated,
+-                               ForCore, &Located->Magisk) == EFI_SUCCESS);
++  Status = CreateInterfaceMagisk(Protocol, (const EFI_VIRTUAL_ADDRESS)Delegated,
++                               ForCore, &Located->Magisk);
++  ASSERT_EFI_ERROR(Status);
+ }
+ 
+ VOID FreeLocatedSandboxInterface(IN LOCATED_INTERFACE *Located) {
+@@ -423,7 +425,7 @@ EFI_STATUS OpenSandboxInterface(IN UEFI_SANDBOX *Sandbox, IN EFI_HANDLE Handle,
+     return Status;
+ 
+   if (Attributes & EFI_OPEN_PROTOCOL_EXCLUSIVE)
+-    ASSERT(0);
++    __unimplemented();
+ 
+   BASE_LIST_FOR_EACH(Link, &Sandbox->LocatedInterfaces) {
+     LocCursor = BASE_CR(Link, LOCATED_INTERFACE, SandboxNode);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+index 27feb67a87..08a3928428 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+@@ -111,7 +111,7 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+   }
+ 
+   /* TODO: can we map FV region directly? */
+-  // FIXME: shoule be readonly?
++  // FIXME: shoule bd readonly?
+   /*
+    * Map the FV region as normal executable memory
+    */
+@@ -136,13 +136,13 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+                           KERNEL_SYSTEM_DRAM_BASE,
+                           KERNEL_SYSTEM_DRAM_BASE + KERNEL_SYSTEM_DRAM_SIZE,
+                           VMR_READ | VMR_WRITE | VMR_EXEC, TRUE, FALSE);
+-  ASSERT(!EFI_ERROR(Status));
++  ASSERT_EFI_ERROR(Status);
+ #endif
+ 
+   Status = AddVMRegion(Sandbox, PHYS_TO_VIRT(Sandbox->Context.StackBase),
+                        (EFI_PHYSICAL_ADDRESS)Sandbox->Context.StackBase,
+                        DEFAULT_STACK_SIZE, VMR_READ | VMR_WRITE, FALSE);
+-  ASSERT(!EFI_ERROR(Status));
++  ASSERT_EFI_ERROR(Status);
+ 
+   /*
+    * Map image in sandbox page table
+@@ -151,7 +151,7 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+                        (EFI_PHYSICAL_ADDRESS)ImageData.Info.ImageBase,
+                        ImageData.Info.ImageSize,
+                        VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
+-  ASSERT(!EFI_ERROR(Status));
++  ASSERT_EFI_ERROR(Status);
+ 
+   Sandbox->ImageData = ImageData;
+ 
+@@ -234,7 +234,7 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
+     Context.R9 = (EFI_PHYSICAL_ADDRESS)Handle;
+     Context.Rax = (EFI_VIRTUAL_ADDRESS)Sandbox->ImageData.Info.SystemTable;
+ 
+-    ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
++    ScheduleToSandboxInternal(Sandbox, TRUE);
+ 
+     SBDebug("Starting Sandbox %d, PageTable: 0x%lx\n, ImageHandle: 0x%lx, "
+             "SystemTable: 0x%lx\n",
+@@ -262,13 +262,12 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
+                                 KERNEL_SYSTEM_DRAM_BASE +
+                                     KERNEL_SYSTEM_DRAM_SIZE);
+ 
+-    ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
+-
++    ScheduleToSandboxInternal(Sandbox, TRUE);
+     EretToSandbox(&Context);
+ #endif
+   }
+ 
+-  ASSERT(Sandbox == ScheduleToSandboxInternal(&CoreSandbox, TRUE));
++  ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+ 
+   ZeroMem((VOID *)Sandbox->Context.StackBase, DEFAULT_STACK_SIZE);
+   FreePool(Sandbox->JumpBuffer);
+@@ -334,7 +333,6 @@ ScheduleToSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, IN OUT UINTN *SandboxID,
+   } else {
+     Sandbox = FindSandbox(*SandboxID);
+     if (Sandbox == NULL) {
+-      SBError("Sandbox %d not found\n", *SandboxID);
+       return EFI_NOT_FOUND;
+     }
+   }
+@@ -376,8 +374,7 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
+    */
+   Status = InitProtocolDB();
+   if (EFI_ERROR(Status)) {
+-    SBError("Fail to initialize protocol database\n");
+-    ASSERT(FALSE);
++    __unreachable("Fail to initialize protocol database\n");
+   }
+ 
+ #if ProtocolDBTest
+@@ -386,21 +383,21 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
+   Status = GetProtocol(&Guid1, &Protocol);
+   if (EFI_ERROR(Status)) {
+     SBError("Fail to get SerialIo protocol\n");
+-    ASSERT(FALSE);
++    __unreachable();
+   }
+ 
+   EFI_GUID Guid2 = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
+   Status = GetProtocol(&Guid2, &Protocol);
+   if (EFI_ERROR(Status)) {
+     SBError("Fail to get SimpleFileSystem protocol\n");
+-    ASSERT(FALSE);
++    __unreachable();
+   }
+ 
+   EFI_GUID Guid3 = EFI_DISK_IO_PROTOCOL_GUID;
+   Status = GetProtocol(&Guid3, &Protocol);
+   if (EFI_ERROR(Status)) {
+     SBError("Fail to get DiskIo protocol\n");
+-    ASSERT(FALSE);
++    __unreachable();
+   }
+ 
+   SBDebug("Pass Protocol Analyze Test\n");
+@@ -414,10 +411,9 @@ SandboxInitialize(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
+          CoreTranslationTableBase));
+ 
+   Status = InitCorePageTable(&CoreTranslationTableBase);
+-  if (EFI_ERROR(Status)) {
+-    SBError("Fail to initialize core page table\n");
+-    return Status;
+-  }
++
++  if (EFI_ERROR(Status))
++    __unreachable("Fail to initialize core page table\n");
+ 
+   /* Initial IdleSandbox */
+   CoreSandbox.SandboxID = GetNextSandBoxID();
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+index d1e6c3059b..b0e32e9817 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+@@ -7,24 +7,26 @@
+ 
+ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
+                                         BOOLEAN TplRaise) {
+-  EFI_TPL Tpl;
+   UEFI_SANDBOX *PrevSandbox;
++  EFI_TPL Tpl;
+ 
+   if (CurrentSandbox == Sandbox)
+     return Sandbox;
+ 
+-  if (TplRaise) {
++  if(TplRaise)
+     Tpl = gBS->RaiseTPL(TPL_HIGH_LEVEL);
+-  }
++  else
++    DisableInterrupts();
+ 
+   PrevSandbox = CurrentSandbox;
+   CurrentSandbox = Sandbox;
+ 
+   SetPageTable((VOID *)Sandbox->TranslationTable);
+ 
+-  if (TplRaise) {
+-    gBS->RestoreTPL(Tpl); // what would happen if event is notified here.?
+-  }
++  if(TplRaise)
++    gBS->RestoreTPL(Tpl);
++  else
++    EnableInterrupts();
+ 
+   return PrevSandbox;
+ }
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c b/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
+index d300b539f1..896c54ea55 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Service/ServiceManager.c
+@@ -156,12 +156,12 @@ SandboxInstallProtocolInterface(IN OUT EFI_HANDLE *Handle,
+   if (EFI_ERROR(Status))
+     goto err_out;
+ 
+-  ASSERT(ScheduleToSandboxInternal(CallerSandbox, TRUE) == &CoreSandbox);
++  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+ 
+   return Status;
+ 
+ err_out:
+-  ASSERT(ScheduleToSandboxInternal(CallerSandbox, TRUE) == &CoreSandbox);
++  ScheduleToSandboxInternal(CallerSandbox, TRUE);
+   Status =
+       UninstallSandboxInterface(CurrentSandbox, ProtocolID, Handle, Interface);
+   return Status;
+@@ -448,14 +448,12 @@ out:
+ EFI_STATUS
+ SandboxInstallMultipleProtocolInterfaces(IN OUT EFI_HANDLE *Handle, ...) {
+   __unimplemented();
+-  ASSERT(FALSE);
+   return EFI_UNSUPPORTED;
+ }
+ 
+ EFI_STATUS
+ SandboxUninstallMultipleProtocolInterfaces(IN EFI_HANDLE Handle, ...) {
+   __unimplemented();
+-  ASSERT(FALSE);
+   return EFI_UNSUPPORTED;
+ }
+ 
+@@ -662,7 +660,7 @@ SandboxReturnFromSandbox(IN BASE_LIBRARY_JUMP_BUFFER *JumpBuffer,
+   CurrentCpuInfoIndex--;
+ #endif
+   LongJump(JumpBuffer, Status + 1);
+-  ASSERT(0);
++  __unreachable();
+   return EFI_SUCCESS;
+ }
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c b/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
+index c541f3ea94..4b3fe9f348 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
++++ b/MdeModulePkg/Universal/SandboxDxe/SystemTable/SystemTable.c
+@@ -142,10 +142,10 @@ InitAndMapSandboxSystemTable(IN OUT UEFI_SANDBOX *Sandbox,
+                        (EFI_PHYSICAL_ADDRESS)BufferBase, BufferSize,
+                        VMR_READ | VMR_WRITE | VMR_EXEC, FALSE);
+ 
+-  ASSERT(!EFI_ERROR(Status));
++  ASSERT_EFI_ERROR(Status);
+ 
+   Status = MapSandboxHOBList(Sandbox, SandboxSystemTable, srcST);
+-  ASSERT(!EFI_ERROR(Status));
++  ASSERT_EFI_ERROR(Status);
+ 
+   SetSystemTableProtocolInterface(Sandbox, SandboxSystemTable, srcST);
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Utils/Logger.h b/MdeModulePkg/Universal/SandboxDxe/Utils/Logger.h
+index 07ded030d4..fd4fe555af 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Utils/Logger.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Utils/Logger.h
+@@ -1,18 +1,22 @@
+ #ifndef SANDBOX_PRINT_H_
+ #define SANDBOX_PRINT_H_
+ 
+-#define SANDBOX_DEBUG 0
++#define SANDBOX_DEBUG 1
+ 
+ #if SANDBOX_DEBUG
+ #include <Library/DebugLib.h>
+ #define SBDebug(format, ...)                                                   \
+-  DebugPrint(DEBUG_INFO, "[Sandbox] (%a:%d) " format, __func__, __LINE__, ##__VA_ARGS__)
++  DebugPrint(DEBUG_INFO, "[Sandbox] (%a:%d) " format, __func__, __LINE__,      \
++             ##__VA_ARGS__)
+ #define SBPrint(format, ...)                                                   \
+-  DebugPrint(DEBUG_INFO, "[Sandbox] (%a:%d) " format, __func__, __LINE__, ##__VA_ARGS__)
++  DebugPrint(DEBUG_INFO, "[Sandbox] (%a:%d) " format, __func__, __LINE__,      \
++             ##__VA_ARGS__)
+ #define SBWarn(format, ...)                                                    \
+-  DebugPrint(DEBUG_WARN, "[Sandbox] (%a:%d) " format, __func__, __LINE__, ##__VA_ARGS__)
++  DebugPrint(DEBUG_WARN, "[Sandbox] (%a:%d) " format, __func__, __LINE__,      \
++             ##__VA_ARGS__)
+ #define SBError(format, ...)                                                   \
+-  DebugPrint(DEBUG_ERROR, "[Sandbox] (%a:%d) " format, __func__, __LINE__, ##__VA_ARGS__)
++  DebugPrint(DEBUG_ERROR, "[Sandbox] (%a:%d) " format, __func__, __LINE__,     \
++             ##__VA_ARGS__)
+ #else
+ 
+ #define SBDebug(format, ...)
+@@ -21,7 +25,6 @@
+ #define SBError(format, ...)
+ #endif
+ 
+-
+ #define __unimplemented(format, ...)                                           \
+   do {                                                                         \
+     SBError("Unimplemented Behavior" format "(%a:%d)\n", ##__VA_ARGS__,        \
+@@ -34,10 +37,18 @@
+ 
+ #define __unreachable(format, ...)                                             \
+   do {                                                                         \
+-    SBError("Unreachable Code: " format "(%a:%d)\n", ##__VA_ARGS__, __FILE__,    \
++    SBError("Unreachable Code: " format "(%a:%d)\n", ##__VA_ARGS__, __FILE__,  \
+             __LINE__);                                                         \
+     while (1)                                                                  \
+       ;                                                                        \
+   } while (0)
+ 
++#define __SandboxPanicOnCond(cond, format, ...)                                \
++  do {                                                                         \
++    SBError("Panic: " format "(%a:%d)\n", ##__VA_ARGS__, __FILE__, __LINE__);  \
++    if (!(cond))                                                               \
++      while (1)                                                                \
++        ;                                                                      \
++  } while (0)
++
+ #endif
+-- 
+2.48.1
+

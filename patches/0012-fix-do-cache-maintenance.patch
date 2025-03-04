@@ -1,0 +1,118 @@
+From c60b588d7bdcc4ee53edf3638e9e8c06e682e134 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Tue, 4 Mar 2025 11:09:15 +0800
+Subject: [PATCH 12/13] fix: do cache maintenance
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../Universal/SandboxDxe/BinaryGen/BinaryGen.h        |  4 ++++
+ MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c  |  7 ++++++-
+ MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c        | 11 +++--------
+ MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf      |  1 +
+ 4 files changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
+index 10719cbf7c..619b556338 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
++++ b/MdeModulePkg/Universal/SandboxDxe/BinaryGen/BinaryGen.h
+@@ -15,4 +15,8 @@ VOID *CreateCallbackTrampoline(IN UEFI_SANDBOX *Sandbox,
+                                IN CONST UINT64 ReflectFunc,
+                                IN CONST UINT64 CalleeID,
+                                IN CONST UINT64 FuncAddress);
++
++extern CONST UINT64 ENTRY_TRAMPOLINE_SIZE;
++extern CONST UINT64 RETURN_TRAMPOLINE_SIZE;
++extern CONST UINT64 CALLBACK_TRAMPOLINE_SIZE;
+ #endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+index a3bb492ecf..25b5cf10df 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Jumper.c
+@@ -1,5 +1,6 @@
+ #include <Library/BaseLib.h>
+ #include <Library/BaseMemoryLib.h>
++#include <Library/CacheMaintenanceLib.h>
+ #include <Library/DebugLib.h>
+ #include <Library/MemoryAllocationLib.h>
+ 
+@@ -40,7 +41,7 @@ EFI_STATUS JumpToCoreFunc(IN CONST UINT64 FuncAddress,
+   EFI_STATUS Status;
+   UEFI_SANDBOX *CallerSandbox;
+   CallerSandbox = ScheduleToSandboxInternal(&CoreSandbox, TRUE);
+-
++  FlushIcacheAll();
+   Status = CallCoreFunc(Params, FuncAddress);
+   ScheduleToSandboxInternal(CallerSandbox, TRUE);
+   return Status;
+@@ -88,6 +89,10 @@ EFI_STATUS JumpToSandboxFunc(IN UEFI_SANDBOX *CalleeSandbox,
+     Context.EntryParams.SPSR = SPSR_EL1_USER;
+     Context.EntryParams.SP =
+         TO_VIRT_ADDR(Context.StackBase + DEFAULT_STACK_SIZE);
++    DcacheCleanAndInvaliateArea((UINT64)Context.ReturnTrampoline,
++                                (UINT64)Context.ReturnTrampoline +
++                                    RETURN_TRAMPOLINE_SIZE);
++    FlushIcacheAll();
+     ScheduleToSandboxInternal(Context.CalleeSandbox, TRUE);
+     CallSandboxFunc(&Context.EntryParams);
+     __unreachable("Should not reach here\n");
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+index 6f15494c33..6b05bec21c 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.c
+@@ -1,6 +1,7 @@
+ #include <Library/BaseLib.h>
+-#include <Library/DebugLib.h>
+ #include <Library/BaseMemoryLib.h>
++#include <Library/CacheMaintenanceLib.h>
++#include <Library/DebugLib.h>
+ #include <Library/MemoryAllocationLib.h>
+ #include <Library/UefiBootServicesTableLib.h>
+ #include <Protocol/Sandbox.h>
+@@ -67,7 +68,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+   ZeroMem(Sandbox, sizeof(UefiSandbox));
+ 
+   InitializeListHead(&Sandbox->VMRegions);
+-
+   /*
+    * Allocate memory for the stack and map it in the sandbox page table
+    */
+@@ -147,9 +147,6 @@ CreateSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This,
+ 
+   InitializeListHead(&Sandbox->LocatedInterfaces);
+   InitializeListHead(&Sandbox->InstalledInterfaces);
+-
+-  InitializeListHead(&Sandbox->SVCTrampolineList);
+-  EfiInitializeLock(&Sandbox->SVCTrampolineLock, TPL_NOTIFY);
+   InsertTailList(&mSandboxList, &Sandbox->SandboxListNode);
+   Sandbox->SandboxID = GetNextSandBoxID();
+   *SandboxID = Sandbox->SandboxID;
+@@ -215,13 +212,11 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle,
+     Context.SPSR = SPSR_EL1_USER;
+     Context.LR = PHYS_TO_VIRT(ReturnTrampoline); // TODO: what now
+ 
+-    FlushIcacheAll();
+-
+     /* TODO: shrink the range */
+     DcacheCleanAndInvaliateArea(KERNEL_SYSTEM_DRAM_BASE,
+                                 KERNEL_SYSTEM_DRAM_BASE +
+                                     KERNEL_SYSTEM_DRAM_SIZE);
+-
++    FlushIcacheAll();
+     ScheduleToSandboxInternal(Sandbox, TRUE);
+     EretToSandbox(&Context);
+   }
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index c402e32677..5d95e7e1b0 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -106,6 +106,7 @@
+   JsonLib
+   Ucs2Utf8Lib
+   RedfishCrtLib
++  CacheMaintenanceLib
+ 
+ [LibraryClasses.AARCH64]
+   DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf
+-- 
+2.48.1
+

@@ -1,0 +1,414 @@
+From 0ca8154632f652966940e46f245372cfab2fe2ea Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Mon, 3 Mar 2025 17:24:57 +0800
+Subject: [PATCH 09/13] feat: add better workaround dispatchers
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../SandboxDxe/Interface/Duplicate.c          | 76 +++++--------------
+ .../SandboxDxe/Interface/Workaround.c         | 24 ++++++
+ .../SandboxDxe/Interface/Workaround.h         | 31 ++++++++
+ .../Interface/Workaround/Callback.c           | 52 +++++++++++++
+ .../Interface/Workaround/Callback.h           |  9 +++
+ .../SandboxDxe/Interface/Workaround/Name.c    | 52 +++++++++++++
+ .../SandboxDxe/Interface/Workaround/Name.h    |  6 ++
+ .../SandboxDxe/Interface/Workaround/Virtio.c  | 18 +++++
+ .../SandboxDxe/Interface/Workaround/Virtio.h  |  0
+ .../Universal/SandboxDxe/SandboxDxe.inf       |  4 +
+ 10 files changed, 216 insertions(+), 56 deletions(-)
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.h
+
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+index d75e743bd4..d4b9a32296 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Duplicate.c
+@@ -6,6 +6,7 @@
+ #include <Interface/Duplicate.h>
+ #include <Interface/Interface.h>
+ #include <Interface/PointerList.h>
++#include <Interface/Workaround.h>
+ #include <Memory/Malloc.h>
+ #include <Memory/Memory.h>
+ #include <SandboxDxe.h>
+@@ -334,32 +335,6 @@ STATIC EFI_STATUS CopyOneCallParam(IN DUPLICATE_CTX *Ctx,
+   DstSandbox = Ctx->PointerList->DstSandbox;
+   Status = EFI_SUCCESS;
+ 
+-  if (AsciiStrStr(Param->ParamName, "Str") != NULL ||
+-      AsciiStrCmp(Param->ParamName, "FileName") == 0) {
+-    ASSERT(Param->ParamType->Kind == BasicTypeKind);
+-    if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR16") == 0) {
+-      MemSize = StrSize((CHAR16 *)TO_PHYS_ADDR(Src[Index]));
+-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
+-          Ctx->PointerList->DstSandbox, MemSize));
+-      CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
+-
+-    } else if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR8") ==
+-               0) {
+-
+-      MemSize = AsciiStrSize((CHAR8 *)TO_PHYS_ADDR(Src[Index]));
+-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
+-          Ctx->PointerList->DstSandbox, MemSize));
+-      CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
+-
+-    } else {
+-      __unimplemented("Str Type: %a\n", Param->ParamType->BasicType->TypeName);
+-    }
+-    Syncable = Ctx->Syncable;
+-    return InsertPointerRecordList(Ctx->PointerList, Param->ParamType,
+-                                   Src[Index], Dst[Index], (UINT64)&Dst[Index],
+-                                   MemSize, Syncable);
+-  }
+-
+   ArraySize = SpeculateFunctionParamArraySize(Src, Function, Param);
+ 
+   if (Param->PointerLevel == 1) {
+@@ -474,6 +449,17 @@ __attribute__((unused)) STATIC VOID AllocateSpaceForOneParam(
+                           Dst[Index], (UINT64)&Dst[Index], MemSize, FALSE);
+ }
+ 
++STATIC EFI_STATUS PrepareHeapParam(IN DUPLICATE_CTX *Ctx,
++                                   IN CONST REFLECT_FUNC_TYPE *Func,
++                                   IN CONST UINT64 *Src, OUT UINT64 *Dst,
++                                   UINTN Index) {
++  Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
++      Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
++  return InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index], Dst[Index],
++                                 (UINTN)&Dst[Index],
++                                 sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
++}
++
+ EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+                              IN CONST REFLECT_FUNC_TYPE *Func,
+                              IN CONST UINT64 *Src, OUT UINT64 *Dst) {
+@@ -493,53 +479,31 @@ EFI_STATUS CopyCalloutParams(IN DUPLICATE_CTX *Ctx, IN CONST VOID *Opaque,
+     Param = BASE_CR(Link, REFLECT_PARAM, ParamNode);
+     ASSERT(Param->OutParam || Param->InParam);
+ 
+-    if (AsciiStrCmp(Param->ParamName, "Context") == 0) {
+-      Dst[Index] = Src[Index];
+-      continue;
+-    }
+-
+-    if (AsciiStrStr(Param->ParamName, "CallBack") != NULL) {
+-      ASSERT(Param->ParamType->Kind == FunctionKind);
+-      Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)CreateCallbackTrampoline(
+-          Ctx->PointerList->SrcSandbox, (UINTN)Param->ParamType->Function,
+-          Ctx->PointerList->DstSandbox->SandboxID, Src[Index]));
+-      InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
+-                              Dst[Index], (UINTN)&Src[Index], sizeof(UINTN),
+-                              FALSE);
+-      continue;
+-    }
+-
+     if (Param->ParamType->Kind == ProtocolKind) {
+       // Src[i] With Real Protocol Interface Counterpart find this protocol in
+       // the protocol list;
+-
+       if (Param->InParam)
+         Dst[Index] = (UINTN)Opaque;
+       else {
+         ASSERT(Param->PointerLevel == 2);
+-        Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
+-            Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
+-        Status = InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
+-                                         Dst[Index], (UINTN)&Dst[Index],
+-                                         sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
++        Status = PrepareHeapParam(Ctx, Func, Src, Dst, Index);
+         if (EFI_ERROR(Status))
+           goto out;
+       }
+     } else {
+-
+       if (Param->PointerLevel > 0) {
+-
+         if (Param->PointerLevel > 1 && Param->OutParam && !Param->InParam) {
+           ASSERT(Param->PointerLevel == 2);
+-          Dst[Index] = TO_VIRT_ADDR((UINTN)AllocateSandboxMemory(
+-              Ctx->PointerList->DstSandbox, sizeof(EFI_VIRTUAL_ADDRESS)));
+-          InsertPointerRecordList(Ctx->PointerList, NULL, Src[Index],
+-                                  Dst[Index], (UINTN)&Dst[Index],
+-                                  sizeof(EFI_VIRTUAL_ADDRESS), FALSE);
++          Status = PrepareHeapParam(Ctx, Func, Src, Dst, Index);
++          if (EFI_ERROR(Status))
++            goto out;
+         } else {
+           Ctx->Syncable = Param->OutParam;
++          Status = ApplyAvailableParamCopyWorkaround(Ctx, Func, Param, Src, Dst,
++                                                     Index);
++          if (!EFI_ERROR(Status))
++            goto out;
+           Status = CopyOneCallParam(Ctx, Func, Param, Src, Dst, Index);
+-
+           if (EFI_ERROR(Status))
+             goto out;
+         }
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.c
+new file mode 100644
+index 0000000000..a3e53afdf2
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.c
+@@ -0,0 +1,24 @@
++#include "Workaround/Callback.h"
++#include "Workaround/Name.h"
++#include <Interface/Workaround.h>
++
++STATIC CONST PARAM_WORKAROUND *mWorkarounds[] = {
++    &mStringWorkaround, &mCallbackWorkaround, &mContextWorkaround
++};
++
++EFI_STATUS ApplyAvailableParamCopyWorkaround(
++    IN DUPLICATE_CTX *Ctx, IN CONST REFLECT_FUNC_TYPE *Function,
++    IN CONST REFLECT_PARAM *Param, IN CONST UINT64 *Src, OUT UINT64 *Dst,
++    UINTN Index
++
++) {
++
++  for (UINTN i = 0; i < sizeof(mWorkarounds) / sizeof(UINTN); i++) {
++    if (mWorkarounds[i]->Check(Function, Param) &&
++        mWorkarounds[i]->Copy != NULL) {
++
++      return mWorkarounds[i]->Copy(Ctx, Function, Param, Src, Dst, Index);
++    }
++  }
++  return EFI_NOT_FOUND;
++}
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.h
+new file mode 100644
+index 0000000000..dad724fd5f
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround.h
+@@ -0,0 +1,31 @@
++#ifndef __WORKAROUND_H__
++#define __WORKAROUND_H__
++
++#include <Interface/Duplicate.h>
++#include <Interface/Reflect.h>
++
++#include "Workaround/Virtio.h"
++
++typedef struct {
++  BOOLEAN (*Check)(IN CONST REFLECT_FUNC_TYPE *Func, IN CONST REFLECT_PARAM *Param);
++  EFI_STATUS (*Copy)(IN DUPLICATE_CTX *Ctx,
++                     IN CONST REFLECT_FUNC_TYPE *Function,
++                     IN CONST REFLECT_PARAM *Param, IN CONST UINT64 *Src,
++                     OUT UINT64 *Dst, UINTN Index);
++  EFI_STATUS (*Sync)(IN DUPLICATE_CTX *Ctx,
++                     IN CONST REFLECT_FUNC_TYPE *Function, IN CONST UINT64 *Dst,
++                     OUT UINT64 *Src, UINTN Index);
++} PARAM_WORKAROUND;
++
++typedef struct {
++  CHAR8 *Name;
++  CONST PARAM_WORKAROUND *Params;
++} FUNC_WORKAROUND;
++
++EFI_STATUS ApplyAvailableParamCopyWorkaround(
++    IN DUPLICATE_CTX *Ctx, IN CONST REFLECT_FUNC_TYPE *Function,
++    IN CONST REFLECT_PARAM *Param, IN CONST UINT64 *Src, OUT UINT64 *Dst,
++    UINTN Index
++);
++
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.c
+new file mode 100644
+index 0000000000..ed77a1eb58
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.c
+@@ -0,0 +1,52 @@
++#include <Library/BaseLib.h>
++
++#include <BinaryGen/BinaryGen.h>
++#include <Interface/Workaround.h>
++#include <Memory/Memory.h>
++
++STATIC BOOLEAN CheckContext(IN CONST REFLECT_FUNC_TYPE *Func,
++                            IN CONST REFLECT_PARAM *Param) {
++
++  return AsciiStrStr(Param->ParamName, "Context") != NULL;
++}
++
++STATIC EFI_STATUS CopyContext(IN DUPLICATE_CTX *Ctx,
++                              IN CONST REFLECT_FUNC_TYPE *Function,
++                              IN CONST REFLECT_PARAM *Param,
++                              IN CONST UINT64 *Src, OUT UINT64 *Dst,
++                              UINTN Index) {
++
++  Dst[Index] = Src[Index];
++  return EFI_SUCCESS;
++}
++
++STATIC BOOLEAN CheckCallback(IN CONST REFLECT_FUNC_TYPE *Func,
++                             IN CONST REFLECT_PARAM *Param) {
++  return AsciiStrStr(Param->ParamName, "CallBack") != NULL;
++}
++
++STATIC EFI_STATUS CopyCallback(IN DUPLICATE_CTX *Ctx,
++                               IN CONST REFLECT_FUNC_TYPE *Function,
++                               IN CONST REFLECT_PARAM *Param,
++                               IN CONST UINT64 *Src, OUT UINT64 *Dst,
++                               UINTN Index) {
++
++  Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)CreateCallbackTrampoline(
++      Ctx->PointerList->SrcSandbox, (UINTN)Param->ParamType->Function,
++      Ctx->PointerList->DstSandbox->SandboxID, Src[Index]));
++  return InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
++                                 Dst[Index], (UINTN)&Src[Index], sizeof(UINTN),
++                                 FALSE);
++}
++
++CONST PARAM_WORKAROUND mContextWorkaround = {
++    .Copy = CopyContext,
++    .Check = CheckContext,
++    .Sync = NULL,
++};
++
++CONST PARAM_WORKAROUND mCallbackWorkaround = {
++    .Copy = CopyCallback,
++    .Check = CheckCallback,
++    .Sync = NULL,
++};
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.h
+new file mode 100644
+index 0000000000..e8330557f9
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Callback.h
+@@ -0,0 +1,9 @@
++#ifndef __WORKAROUND_CALLBACK_H__
++#define __WORKAROUND_CALLBACK_H__
++
++#include <Interface/Workaround.h>
++
++
++extern CONST PARAM_WORKAROUND mCallbackWorkaround;
++extern CONST PARAM_WORKAROUND mContextWorkaround;
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.c
+new file mode 100644
+index 0000000000..4618d1fa59
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.c
+@@ -0,0 +1,52 @@
++#include <Library/BaseMemoryLib.h>
++#include <Library/DebugLib.h>
++#include <Library/MemoryAllocationLib.h>
++
++#include <Interface/Duplicate.h>
++#include <Interface/Workaround.h>
++#include <Memory/Malloc.h>
++#include <Memory/Memory.h>
++#include <Utils/Logger.h>
++
++STATIC EFI_STATUS CopyStringName(IN DUPLICATE_CTX *Ctx,
++                                 IN CONST REFLECT_FUNC_TYPE *Function,
++                                 IN CONST REFLECT_PARAM *Param,
++                                 IN CONST UINT64 *Src, OUT UINT64 *Dst,
++                                 IN CONST UINT64 Index) {
++
++  UINTN MemSize;
++  BOOLEAN Syncable;
++  ASSERT(Param->ParamType->Kind == BasicTypeKind);
++  if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR16") == 0) {
++    MemSize = StrSize((CHAR16 *)TO_PHYS_ADDR(Src[Index]));
++    Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
++        Ctx->PointerList->DstSandbox, MemSize));
++    CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
++
++  } else if (AsciiStrCmp(Param->ParamType->BasicType->TypeName, "CHAR8") == 0) {
++
++    MemSize = AsciiStrSize((CHAR8 *)TO_PHYS_ADDR(Src[Index]));
++    Dst[Index] = TO_VIRT_ADDR((EFI_PHYSICAL_ADDRESS)AllocateSandboxMemory(
++        Ctx->PointerList->DstSandbox, MemSize));
++    CopyMem((VOID *)TO_PHYS_ADDR(Dst[Index]), (VOID *)Src[Index], MemSize);
++
++  } else {
++    __unimplemented("Str Type: %a\n", Param->ParamType->BasicType->TypeName);
++  }
++  Syncable = Ctx->Syncable;
++  return InsertPointerRecordList(Ctx->PointerList, Param->ParamType, Src[Index],
++                                 Dst[Index], (UINT64)&Dst[Index], MemSize,
++                                 Syncable);
++}
++
++STATIC BOOLEAN CheckStringName(IN CONST REFLECT_FUNC_TYPE *Func,
++                               IN CONST REFLECT_PARAM *Param) {
++  return AsciiStrStr(Param->ParamName, "Str") ||
++         AsciiStrStr(Param->ParamName, "Name");
++}
++
++CONST PARAM_WORKAROUND mStringWorkaround = {
++    .Copy = CopyStringName,
++    .Check = CheckStringName,
++    .Sync = NULL,
++};
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.h
+new file mode 100644
+index 0000000000..75637d4316
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Name.h
+@@ -0,0 +1,6 @@
++#ifndef __WORKAROUND_NAME_H__
++#define __WORKAROUND_NAME_H__
++
++#include <Interface/Workaround.h>
++extern CONST PARAM_WORKAROUND mStringWorkaround;
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.c b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.c
+new file mode 100644
+index 0000000000..5396564ca2
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.c
+@@ -0,0 +1,18 @@
++#include <Interface/Workaround.h>
++#include <Protocol/VirtioDevice.h>
++
++// VIRTIO needs shared memory to do it.
++// For simplicity now, we map the callee given address to given
++
++STATIC EFI_STATUS VirtioRingCopy(IN DUPLICATE_CTX *Ctx,
++                                 IN CONST REFLECT_FUNC_TYPE *Function,
++                                 IN CONST REFLECT_PARAM *Param,
++                                 IN CONST UINT64 *Src, OUT UINT64 *Dst) {
++  return EFI_SUCCESS;
++}
++
++CONST PARAM_WORKAROUND VirtioRingWorkaround = {
++    .Type = WORKAROUND_PARAM_TYPE,
++    .Name = "VRING",
++    .Copy = VirtioRingCopy,
++};
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.h b/MdeModulePkg/Universal/SandboxDxe/Interface/Workaround/Virtio.h
+new file mode 100644
+index 0000000000..e69de29bb2
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index 070250ff16..12f5b1c21f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -49,6 +49,9 @@
+   Interface/Duplicate.c
+   Interface/Jumper.c
+   Interface/Duplicate.h
++  Interface/Workaround.c
++  Interface/Workaround/Name.c
++  Interface/Workaround/Callback.c
+ 
+   BinaryGen/BinaryGen.h
+ 
+@@ -101,6 +104,7 @@
+ 
+ [Packages]
+   MdePkg/MdePkg.dec
++  OvmfPkg/OvmfPkg.dec
+   MdeModulePkg/MdeModulePkg.dec
+   RedfishPkg/RedfishPkg.dec
+ 
+-- 
+2.48.1
+

@@ -1,0 +1,152 @@
+From af6d5cbd80bd32c01c6640eafe5669b5fd1d0fbd Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Fri, 28 Feb 2025 14:35:44 +0800
+Subject: [PATCH 04/13] feat: system instruction trap&emulate
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../Decompiler/AArch64/Decompiler.c           | 42 +++++++++++++++++++
+ .../Decompiler/AArch64/Instruction.h          | 12 ++++++
+ .../SandboxDxe/Decompiler/Decompiler.h        | 11 +++++
+ .../SandboxDxe/Exception/AArch64/Exception.c  |  5 +++
+ .../SandboxDxe/Exception/Exception.h          |  1 +
+ .../Universal/SandboxDxe/SandboxDxe.inf       |  2 +
+ 6 files changed, 73 insertions(+)
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Instruction.h
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
+
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
+new file mode 100644
+index 0000000000..e16fd95fff
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
+@@ -0,0 +1,42 @@
++#include <Decompiler/Decompiler.h>
++#include <Utils/Logger.h>
++
++#define SMC_MASK 0xD4000003
++#define MRS_MASK 0xD5300000
++#define MSR_MASK 0xD5000000
++
++// TODO: Introduce Access Control Policy on following Sensitive Instructions.
++
++STATIC EFI_STATUS AArch64ResolveSMC(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  UINTN Instr = Context->ELR;
++  ((VOID(*)())Instr)();
++  return EFI_SUCCESS;
++}
++
++STATIC EFI_STATUS AArch64ResolveMRS(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  UINTN Instr = Context->ELR;
++  ((VOID(*)())Instr)();
++  return EFI_SUCCESS;
++}
++
++STATIC EFI_STATUS AArch64ResolveMSR(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  UINTN Instr = Context->ELR;
++  ((VOID(*)())Instr)();
++  return EFI_SUCCESS;
++}
++
++STATIC EFI_STATUS AArch64ResolveInstruction(CONST EFI_SYSTEM_CONTEXT Context) {
++  EFI_SYSTEM_CONTEXT_AARCH64 *ContextAArch64 = Context.SystemContextAArch64;
++  UINTN Instr = ContextAArch64->ELR;
++  if (Instr & SMC_MASK)
++    return AArch64ResolveSMC(ContextAArch64);
++  else if (Instr & MRS_MASK)
++    return AArch64ResolveMRS(ContextAArch64);
++  else if (Instr & MSR_MASK)
++    return AArch64ResolveMSR(ContextAArch64);
++  else
++    SBWarn("Denied access to uninstruction instruction of 0x%lx", Instr);
++  return EFI_ACCESS_DENIED;
++}
++
++DECOMPILER mDecompiler = {.Resolve = AArch64ResolveInstruction};
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Instruction.h b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Instruction.h
+new file mode 100644
+index 0000000000..ad159da3a4
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Instruction.h
+@@ -0,0 +1,12 @@
++#ifndef __INSTRUCTION_H__
++
++#define __INSTRUCTION_H__
++
++#include <SandboxDxe.h>
++typedef enum {
++  SMC,
++  MRS,
++  MSR,
++} DEC_INSTR_TYPE;
++
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h b/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
+new file mode 100644
+index 0000000000..9fafab3c1d
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
+@@ -0,0 +1,11 @@
++#ifndef __DECOMPILER_H__
++#define __DECOMPILER_H__
++
++typedef EFI_STATUS (*Resolve)(UINTN Instr);
++
++typedef struct Decompiler {
++  EFI_STATUS (*Resolve)(CONST EFI_SYSTEM_CONTEXT);
++} DECOMPILER;
++
++extern DECOMPILER mDecompiler;
++#endif
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
+index 022dd303fb..d2e3844f1f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
+@@ -3,6 +3,7 @@
+ #include <Library/UefiBootServicesTableLib.h>
+ #include <Protocol/Cpu.h>
+ 
++#include <Decompiler/Decompiler.h>
+ #include <Exception/Exception.h>
+ #include <Interface/Jumper.h>
+ #include <Interface/Registry.h>
+@@ -201,6 +202,10 @@ STATIC VOID HandleSyncException(IN CONST EFI_EXCEPTION_TYPE InterruptType,
+   case EXCEPTION_SYSTEM_CALL:
+     HandleSyscall(SystemContext);
+     break;
++  case EXCEPTION_SYSTEM_ERROR:
++    if (EFI_ERROR(mDecompiler.Resolve(SystemContext))) {
++      DefaultExceptionHandler(InterruptType, SystemContext);
++    }
+   default:
+     /* Assert */
+     DefaultExceptionHandler(InterruptType, SystemContext);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+index 8011da8245..486240effd 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+@@ -26,6 +26,7 @@ VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
+  * Exceptions handled by sandbox core
+  */
+ #define EXCEPTION_SYSTEM_CALL 0
++#define EXCEPTION_SYSTEM_ERROR 3
+ #define EXCEPTION_SANDBOX_RETURN 1
+ #define EXCEPTION_INSTRUCTION_PERMISSION_FAULT 2
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index cf0d517938..e4db11005f 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -94,6 +94,8 @@
+ 
+   Init/AArch64/ArchInit.c
+ 
++  Decompiler/AArch64/Decompiler.c
++
+ [Packages]
+   MdePkg/MdePkg.dec
+   MdeModulePkg/MdeModulePkg.dec
+-- 
+2.48.1
+

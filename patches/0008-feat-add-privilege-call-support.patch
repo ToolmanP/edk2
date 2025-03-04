@@ -1,0 +1,271 @@
+From b664d4698e8b13df75b3634c9049ad668ece0103 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Mon, 3 Mar 2025 15:12:04 +0800
+Subject: [PATCH 08/13] feat: add privilege call support
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ .../Decompiler/AArch64/Decompiler.c           | 75 ++++++++++++++-----
+ .../SandboxDxe/Decompiler/AArch64/Resolver.S  | 30 ++++++++
+ .../SandboxDxe/Decompiler/Decompiler.h        |  4 +-
+ .../SandboxDxe/Exception/AArch64/Exception.c  | 17 ++++-
+ .../SandboxDxe/Exception/Exception.h          |  2 +-
+ .../Universal/SandboxDxe/SandboxDxe.inf       |  1 +
+ .../Universal/SandboxDxe/Sched/Sched.c        |  5 +-
+ 7 files changed, 105 insertions(+), 29 deletions(-)
+ create mode 100644 MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Resolver.S
+
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
+index e16fd95fff..9108abe983 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Decompiler.c
+@@ -1,42 +1,79 @@
++#include "Library/BaseMemoryLib.h"
++#include "Library/UefiBootServicesTableLib.h"
+ #include <Decompiler/Decompiler.h>
+ #include <Utils/Logger.h>
+ 
+ #define SMC_MASK 0xD4000003
+ #define MRS_MASK 0xD5300000
+-#define MSR_MASK 0xD5000000
++#define MSR_MASK 0xD5100000
+ 
+ // TODO: Introduce Access Control Policy on following Sensitive Instructions.
++//
++//
++//
+ 
+-STATIC EFI_STATUS AArch64ResolveSMC(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
+-  UINTN Instr = Context->ELR;
+-  ((VOID(*)())Instr)();
++extern VOID ProxySMC(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
++
++STATIC EFI_STATUS AArch64ResolveSMC(EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  ProxySMC(Context);
+   return EFI_SUCCESS;
+ }
+ 
+-STATIC EFI_STATUS AArch64ResolveMRS(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
+-  UINTN Instr = Context->ELR;
+-  ((VOID(*)())Instr)();
++// Clear out the destination register
++
++STATIC UINTN Mrs(UINT32 Instr) {
++  Instr &= ~(0x1F << 0);
++  UINT32 Template[] = {
++      Instr,      // mrs x0, xxx
++      0xd65f03c0  // ret
++  };
++  VOID *Buffer = NULL;
++  gBS->AllocatePool(EfiBootServicesCode, sizeof(Template), &Buffer);
++  CopyMem(Buffer, Template, sizeof(Template));
++  UINT32 Result = ((UINTN(*)())Buffer)();
++  gBS->FreePool(Buffer);
++  return Result;
++}
++
++STATIC VOID Msr(UINT32 Instr, UINTN Source) {
++  Instr &= ~(0x1F << 0);
++  UINT32 Template[] = {
++      Instr,      // msr xxx, x0
++      0xd65f03c0  // ret
++  };
++  VOID *Buffer = NULL;
++  gBS->AllocatePool(EfiBootServicesCode, sizeof(Template), &Buffer);
++  CopyMem(Buffer, Template, sizeof(Template));
++  ((VOID(*)(UINTN))Buffer)(Source);
++  gBS->FreePool(Buffer);
++}
++
++STATIC EFI_STATUS AArch64ResolveMRS(EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  UINT32 Instr = *(UINT32 *)(Context->ELR);
++  ((UINTN *)Context)[Instr & 0x1F] = Mrs(Instr);
+   return EFI_SUCCESS;
+ }
+ 
+-STATIC EFI_STATUS AArch64ResolveMSR(CONST EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
+-  UINTN Instr = Context->ELR;
+-  ((VOID(*)())Instr)();
++STATIC EFI_STATUS AArch64ResolveMSR(EFI_SYSTEM_CONTEXT_AARCH64 *Context) {
++  UINT32 Instr = *(UINT32 *)(Context->ELR);
++  Msr(Instr, ((UINTN *)Context)[(Instr & 0x1F)]);
+   return EFI_SUCCESS;
+ }
+ 
+-STATIC EFI_STATUS AArch64ResolveInstruction(CONST EFI_SYSTEM_CONTEXT Context) {
++STATIC EFI_STATUS AArch64ResolveInstruction(EFI_SYSTEM_CONTEXT Context) {
+   EFI_SYSTEM_CONTEXT_AARCH64 *ContextAArch64 = Context.SystemContextAArch64;
+-  UINTN Instr = ContextAArch64->ELR;
+-  if (Instr & SMC_MASK)
+-    return AArch64ResolveSMC(ContextAArch64);
+-  else if (Instr & MRS_MASK)
+-    return AArch64ResolveMRS(ContextAArch64);
+-  else if (Instr & MSR_MASK)
+-    return AArch64ResolveMSR(ContextAArch64);
++  UINT32 Instr = *(UINT32 *)(ContextAArch64->ELR);
++  EFI_STATUS Status = EFI_ACCESS_DENIED;
++  if ((Instr >> 24) == (SMC_MASK >> 24) && (Instr & 0x3) == 3)
++    Status =AArch64ResolveSMC(ContextAArch64);
++  else if ((Instr >> 20) == (MRS_MASK >> 20))
++    Status = AArch64ResolveMRS(ContextAArch64);
++  else if ((Instr >> 20) == (MSR_MASK >> 20))
++    Status = AArch64ResolveMSR(ContextAArch64);
+   else
+     SBWarn("Denied access to uninstruction instruction of 0x%lx", Instr);
+-  return EFI_ACCESS_DENIED;
++
++  return Status;
+ }
+ 
+ DECOMPILER mDecompiler = {.Resolve = AArch64ResolveInstruction};
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Resolver.S b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Resolver.S
+new file mode 100644
+index 0000000000..670baa2ee6
+--- /dev/null
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/AArch64/Resolver.S
+@@ -0,0 +1,30 @@
++#include <AsmMacroIoLib.h>
++
++ASM_FUNC(ProxySMC)
++  stp x29, x30, [sp, #-0x10]!
++  stp x19, x20, [sp, #-0x10]!
++  mov x19, x0 // x19 = context
++
++  ldp x0, x1, [x19] // x0 = context->SmcId
++  ldp x2, x3, [x19, #0x10] // x2 = context->Arg0
++  ldp x4, x5, [x19, #0x20]
++  ldp x6, x7, [x19, #0x30]
++  ldp x8, x9, [x19, #0x40]
++  ldp x10, x11, [x19, #0x50]
++  ldp x12, x13, [x19, #0x60]
++  ldp x14, x15, [x19, #0x70]
++  ldp x16, x17, [x19, #0x80]
++  smc #0
++  stp x0, x1, [x19] // x0 = context->SmcId
++  stp x2, x3, [x19, #0x10] // x2 = context->Arg0
++  stp x4, x5, [x19, #0x20]
++  stp x6, x7, [x19, #0x30]
++  stp x8, x9, [x19, #0x40]
++  stp x10, x11, [x19, #0x50]
++  stp x12, x13, [x19, #0x60]
++  stp x14, x15, [x19, #0x70]
++  stp x16, x17, [x19, #0x80]
++
++  ldp x19, x20, [sp], #0x10
++  ldp x29, x30, [sp], #0x10
++  ret
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h b/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
+index 9fafab3c1d..6221b2a506 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Decompiler/Decompiler.h
+@@ -4,7 +4,9 @@
+ typedef EFI_STATUS (*Resolve)(UINTN Instr);
+ 
+ typedef struct Decompiler {
+-  EFI_STATUS (*Resolve)(CONST EFI_SYSTEM_CONTEXT);
++  VOID *CodeBuffer;
++  EFI_STATUS (*Resolve)(EFI_SYSTEM_CONTEXT);
++
+ } DECOMPILER;
+ 
+ extern DECOMPILER mDecompiler;
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
+index d2e3844f1f..fdbf142128 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/AArch64/Exception.c
+@@ -1,3 +1,5 @@
++#include "Library/DebugLib.h"
++#include "Sched.h"
+ #include <Library/DefaultExceptionHandlerLib.h>
+ #include <Library/SandboxSyscalls.h>
+ #include <Library/UefiBootServicesTableLib.h>
+@@ -153,6 +155,8 @@ STATIC INT32 ExceptionSyndrome(IN UINT32 Esr) {
+   Iss = Esr & 0x00ffffff;
+ 
+   switch (Ec) {
++  case 0x0:
++    return EXCEPTION_SYSTEM_ERROR;
+   case 0x15:
+     Message = "SVC executed in AArch64";
+     return 0;
+@@ -194,18 +198,23 @@ STATIC VOID HandleSyscall(IN EFI_SYSTEM_CONTEXT SystemContext) {
+ STATIC VOID HandleSyncException(IN CONST EFI_EXCEPTION_TYPE InterruptType,
+                                 IN OUT CONST EFI_SYSTEM_CONTEXT SystemContext) {
+ 
++  UEFI_SANDBOX *PrevSandbox;
+   UINTN ExceptionType;
+-
+   ExceptionType = ExceptionSyndrome(SystemContext.SystemContextAArch64->ESR);
+ 
+   switch (ExceptionType) {
+   case EXCEPTION_SYSTEM_CALL:
+     HandleSyscall(SystemContext);
+     break;
+-  case EXCEPTION_SYSTEM_ERROR:
+-    if (EFI_ERROR(mDecompiler.Resolve(SystemContext))) {
++  case EXCEPTION_SYSTEM_ERROR: {
++    PrevSandbox = ScheduleToSandboxInternal(&CoreSandbox, FALSE);
++    if (EFI_ERROR(mDecompiler.Resolve(SystemContext)))
+       DefaultExceptionHandler(InterruptType, SystemContext);
+-    }
++    else
++      SystemContext.SystemContextAArch64->ELR += 4;
++    ScheduleToSandboxInternal(PrevSandbox, FALSE);
++    break;
++  }
+   default:
+     /* Assert */
+     DefaultExceptionHandler(InterruptType, SystemContext);
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+index 486240effd..41b12d1bad 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
++++ b/MdeModulePkg/Universal/SandboxDxe/Exception/Exception.h
+@@ -26,9 +26,9 @@ VOID EretToSandbox(EFI_SYSTEM_CONTEXT_AARCH64 *Context);
+  * Exceptions handled by sandbox core
+  */
+ #define EXCEPTION_SYSTEM_CALL 0
+-#define EXCEPTION_SYSTEM_ERROR 3
+ #define EXCEPTION_SANDBOX_RETURN 1
+ #define EXCEPTION_INSTRUCTION_PERMISSION_FAULT 2
++#define EXCEPTION_SYSTEM_ERROR 3
+ 
+ EFI_STATUS RegisterSyncExceptionHandler(BOOLEAN Unregister);
+ 
+diff --git a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+index 15f1c5e322..070250ff16 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
++++ b/MdeModulePkg/Universal/SandboxDxe/SandboxDxe.inf
+@@ -97,6 +97,7 @@
+   Init/AArch64/ArchInit.c
+ 
+   Decompiler/AArch64/Decompiler.c
++  Decompiler/AArch64/Resolver.S
+ 
+ [Packages]
+   MdePkg/MdePkg.dec
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+index f94e08c136..c715969143 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+@@ -15,8 +15,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
+ 
+   if(TplRaise)
+     Tpl = gBS->RaiseTPL(TPL_HIGH_LEVEL);
+-  else
+-    DisableInterrupts();
++
+ 
+   PrevSandbox = CurrentSandbox;
+   CurrentSandbox = Sandbox;
+@@ -25,8 +24,6 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
+ 
+   if(TplRaise)
+     gBS->RestoreTPL(Tpl);
+-  else
+-    EnableInterrupts();
+ 
+   return PrevSandbox;
+ }
+-- 
+2.48.1
+

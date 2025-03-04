@@ -1,0 +1,26 @@
+From 32b431c7a084a60961cf2312438541cad4670285 Mon Sep 17 00:00:00 2001
+From: Yiyang Wu <toolmanp@tlmp.cc>
+Date: Fri, 28 Feb 2025 14:42:16 +0800
+Subject: [PATCH 05/13] feat: asid support
+
+Signed-off-by: Yiyang Wu <toolmanp@tlmp.cc>
+---
+ MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+index b0e32e9817..f94e08c136 100644
+--- a/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
++++ b/MdeModulePkg/Universal/SandboxDxe/Sched/Sched.c
+@@ -21,7 +21,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox,
+   PrevSandbox = CurrentSandbox;
+   CurrentSandbox = Sandbox;
+ 
+-  SetPageTable((VOID *)Sandbox->TranslationTable);
++  SetPageTable((VOID *)(Sandbox->TranslationTable | (Sandbox->SandboxID << 48)));
+ 
+   if(TplRaise)
+     gBS->RestoreTPL(Tpl);
+-- 
+2.48.1
+
