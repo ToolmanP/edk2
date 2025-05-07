@@ -59,9 +59,9 @@ typedef EFI_STATUS (EFIAPI *LARGE_INPUT_BUFFER_TEST)(
 
 typedef EFI_STATUS (EFIAPI *OUTPUT_POINTER_TEST)(
     IN EFI_SANDBOX_TEST_PROTOCOL *This,
-    IN OUT UINT64 *OutputBufferSize,
-    IN OUT UINT64 *OutputSum,
-    OUT VOID **OutputBuffer
+    IN UINT64 OutputBufferSize,
+    OUT UINT64 **OutputName,
+    OUT UINT64 **OutputBuffer
 );
 
 struct _EFI_SANDBOX_TEST_PROTOCOL {

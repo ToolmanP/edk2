@@ -77,18 +77,18 @@ LargeInputBufferTest(IN EFI_SANDBOX_TEST_PROTOCOL *This, IN VOID *Buffer, IN UIN
 
 EFI_STATUS
 EFIAPI
-OutputPointerTest(IN EFI_SANDBOX_TEST_PROTOCOL *This, IN OUT UINT64 *OutputBufferSize, IN OUT UINT64 *OutputSum, OUT VOID **OutputBuffer) {
-  UINT64 Count = 16;
-  UINT64 Sum = 0;
+OutputPointerTest(IN EFI_SANDBOX_TEST_PROTOCOL *This, IN UINT64 OutputBufferSize, OUT UINT64 **OutputName, OUT UINT64 **OutputBuffer) {
+  // UINT64 Count = 16;
+  // UINT64 Sum = 0;
 
-  *OutputBuffer = AllocatePool(sizeof(UINT64) * Count);
+  *OutputBuffer = AllocatePool(sizeof(UINT64) * 16);
   // for (UINT64 i = 0; i < Count; i++) {
   //   ((UINT64 *)*OutputBuffer)[i] = i;
   //   Sum += i;
   // }
 
-  *OutputBufferSize = sizeof(UINT64) * Count;
-  *OutputSum = Sum;
+  // *OutputBufferSize = sizeof(UINT64) * Count;
+  // *OutputSum = Sum;
   return EFI_SUCCESS;
 }
 

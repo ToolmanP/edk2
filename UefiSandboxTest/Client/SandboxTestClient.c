@@ -10,7 +10,7 @@
 
 EFI_SANDBOX_TEST_PROTOCOL *SandboxTest;
 
-#define PRINT_TOTAL 1
+#define PRINT_TOTAL 0
 
 EFI_STATUS
 Test0(UINT64 *TotalTSC) {
@@ -30,7 +30,7 @@ Test0(UINT64 *TotalTSC) {
 
     StartTSC = ReadCounter();
 
-    for (UINT64 i = 0; i < 100; i++) {
+    for (UINT64 i = 0; i < 10; i++) {
       CallStartTSC = ReadCounter();
       Status = SandboxTest->SimpleCallTest(SandboxTest, i, FALSE, 0);
       if (EFI_ERROR(Status)) {
@@ -55,7 +55,7 @@ Test0(UINT64 *TotalTSC) {
       *TotalTSC = EndTSC - StartTSC;
     }
 #if PRINT_TOTAL
-    DebugPrint(DEBUG_INFO, "Simple,%ld,%ld\n", *TotalTSC, CallAverageTSC / 100);
+    DebugPrint(DEBUG_INFO, "Simple,%ld,%ld\n", *TotalTSC, CallAverageTSC / 10);
 #endif
   }
 
@@ -78,7 +78,7 @@ Test1(UINT64 *TotalTSC) {
 
     StartTSC = ReadCounter();
 
-    for (UINT64 i = 0; i < 100; i++) {
+    for (UINT64 i = 0; i < 10; i++) {
       Value = i;
       Status =
           SandboxTest->SimpleInputPointerTest(SandboxTest, &Value, FALSE, 0);  
@@ -101,7 +101,7 @@ Test1(UINT64 *TotalTSC) {
       *TotalTSC = EndTSC - StartTSC;
     }
 #if PRINT_TOTAL
-    DebugPrint(DEBUG_INFO, "Pointer,%ld,%ld\n", *TotalTSC, *TotalTSC / 100);
+    DebugPrint(DEBUG_INFO, "Pointer,%ld,%ld\n", *TotalTSC, *TotalTSC / 10);
 #endif
   }
 
@@ -125,7 +125,7 @@ Test2(UINT64 *TotalTSC) {
 
     StartTSC = ReadCounter();
 
-    for (UINT64 i = 0; i < 100; i++) {
+    for (UINT64 i = 0; i < 10; i++) {
       Payload0.Number = i;
       Payload0.Offset = 1;
       Payload1.Payload0 = &Payload0;
@@ -152,7 +152,7 @@ Test2(UINT64 *TotalTSC) {
       *TotalTSC = EndTSC - StartTSC;
     }
 #if PRINT_TOTAL
-    DebugPrint(DEBUG_INFO, "Complex,%ld,%ld\n", *TotalTSC, *TotalTSC / 100);
+    DebugPrint(DEBUG_INFO, "Complex,%ld,%ld\n", *TotalTSC, *TotalTSC / 10);
 #endif
   }
 
@@ -208,8 +208,9 @@ Test4(UINT64 *TotalTSC) {
   UINT64 StartTSC, EndTSC;
   // UINT64 mSum = 0;
   UINT64 *Buffer = NULL;
-  UINT64 BufferSize = 0;
-  UINT64 NumberSum = 0;
+  UINT64 *BufferName = NULL;
+  // UINT64 BufferSize = 0;
+  // UINT64 NumberSum = 0;
 
   {
     // Status = SandboxTest->ResetSum(SandboxTest);
@@ -220,8 +221,7 @@ Test4(UINT64 *TotalTSC) {
 
     StartTSC = ReadCounter();
 
-    Status = SandboxTest->OutputPointerTest(SandboxTest, &BufferSize,
-                                            &NumberSum, (VOID **)&Buffer);
+    Status = SandboxTest->OutputPointerTest(SandboxTest, 16, &BufferName, &Buffer);
     if (EFI_ERROR(Status)) {
       DebugPrint(DEBUG_ERROR, "Output Pointer Test4 failed\n");
       return Status;
@@ -334,6 +334,8 @@ SandboxTestStart(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
       return Status;
     }
   }
+
+  DebugPrint(DEBUG_INFO, "End of SandboxTestClient\n");
 
   return Status;
 }
