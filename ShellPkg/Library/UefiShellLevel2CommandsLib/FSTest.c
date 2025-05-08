@@ -17,11 +17,10 @@ VOID *AllocatePayload(UINTN Size) {
 
 VOID FreePayload(VOID *Payload) { FreePool(Payload); }
 
-STATIC SHELL_STATUS RunTest(CONST CHAR16 *Cwd) {
+STATIC SHELL_STATUS RunTest(CONST CHAR16 *Cwd, UINTN FileSize) {
   CHAR16 FileName[4096];
   SHELL_FILE_HANDLE Handle;
   VOID *Payload;
-  UINTN FileSize = 128;
   Payload = AllocatePayload(FileSize);
 
   UINTN ValA = 0, ValB = 0;
@@ -35,43 +34,43 @@ STATIC SHELL_STATUS RunTest(CONST CHAR16 *Cwd) {
       EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ, 0);
   ValB = ReadCounter();
 
-  DEBUG((DEBUG_ERROR, "OpenFile,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "OpenFile,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
   ShellGetFileInfo(Handle);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "GetFileInfo,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "GetFileInfo,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
   ShellWriteFile(Handle, &FileSize, Payload);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "WriteFile,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "WriteFile,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
   ShellSetFilePosition(Handle, 0);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "SetFilePosition,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "SetFilePosition,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
   ShellFlushFile(Handle);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "FlushFile,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "FlushFile,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
   ShellReadFile(Handle, &FileSize, Payload);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "ReadFile,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "ReadFile,%lu,%lu\n", FileSize, ValB - ValA));
 
   gBS->Stall(100);
   ValA = ReadCounter();
-  ShellDeleteFile(&Handle) ;
+  ShellDeleteFile(&Handle);
   ValB = ReadCounter();
-  DEBUG((DEBUG_ERROR, "DeleteFile,%lu\n", ValB - ValA));
+  DEBUG((DEBUG_ERROR, "DeleteFile,%lu,%lu\n", FileSize, ValB - ValA));
 
   FreePayload(Payload);
   return EFI_SUCCESS;
@@ -90,6 +89,7 @@ ShellCommandRunFsTest(IN EFI_HANDLE ImageHandle,
   CHAR16 *ProblemParam;
   CONST CHAR16 *Cwd;
   UINT64 Intermediate;
+  UINTN FileSize[] = {128, 4096, 16384};
   Status = ShellInitialize();
   ASSERT_EFI_ERROR(Status);
 
@@ -122,11 +122,11 @@ ShellCommandRunFsTest(IN EFI_HANDLE ImageHandle,
   }
 
   Cwd = ShellGetCurrentDir(NULL);
-
-  DebugPrint(DEBUG_INFO, "Size,time\n");
-
-  for (UINTN i = 0; i < 64 ; i++) {
-    RunTest(Cwd);
+  for (UINTN s = 0; s < sizeof(FileSize) / sizeof(UINTN); s++) {
+    DebugPrint(DEBUG_INFO, "Type,Size,Cycles\n");
+    for (UINTN i = 0; i < 16; i++) {
+      RunTest(Cwd, FileSize[s]);
+    }
   }
 
 out:
