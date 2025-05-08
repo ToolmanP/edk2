@@ -104,10 +104,10 @@ LoadDriver (
   }
 
   CHAR16 SandboxStr[] = L"FS0:\\Sandbox";
-  BOOLEAN Flag = FALSE;
+  unsigned char Flag = 0;
   if (StrnCmp(FileName, SandboxStr, StrLen(SandboxStr)) == 0) {
     DebugPrint(DEBUG_INFO, "Loading %s from Sandbox\n", FileName);
-    Flag = TRUE;
+    Flag = 0xc;
   }
 
   //
