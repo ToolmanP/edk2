@@ -1571,13 +1571,9 @@ CoreLoadImage (
   PERF_LOAD_IMAGE_BEGIN (NULL);
 
   // TODO: Remove after test
-  static UINT32 Counter = 0;
   if (BootPolicy == 0xc) {
-    if (Counter) {
       DebugPrint(DEBUG_INFO, "Run in Sandbox by setting BootPolicy to TRUE\n");
       return CoreLoadImageInSandbox(FALSE, ParentImageHandle, FilePath, SourceBuffer, SourceSize, ImageHandle);
-    }
-    Counter++;
   }
 
   Status = CoreLoadImageCommon (
