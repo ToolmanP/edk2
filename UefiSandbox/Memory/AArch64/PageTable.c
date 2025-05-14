@@ -36,7 +36,7 @@ inline VOID FlushIcacheAll(VOID)
 	 * Invalidate instruction cache ALL to PoU (Inner Shareable)
 	 */
 	asm volatile("ic ialluis");
-    
+
     asm volatile("dsb ish");
     asm volatile("isb");
 }
@@ -50,10 +50,9 @@ inline VOID FlushIcacheRange(UINT64 start, UINT64 end)
 }
 
 
-void SetPageTable(void *pgtbl)
+void SetPageTable(IN UEFI_SANDBOX *Sandbox)
 {
-    ArmSetTTBR0(pgtbl);
-    ArmInvalidateTlb();
+    ArmSetTTBR0((VOID *)(Sandbox->TranslationTable | ((UINTN)(Sandbox->SandboxID) << 48)));
 }
 
 EFI_PHYSICAL_ADDRESS GetPageTable(void)
@@ -147,10 +146,10 @@ IsTableEntry(IN UINT64 Entry, IN UINTN Level) {
 
 STATIC
 VOID ReplaceTableEntry(
-    IN UINT64 *Entry, 
-    IN UINT64 Value, 
-    IN UINT64 RegionStart, 
-    IN UINT64 BlockMask, 
+    IN UINT64 *Entry,
+    IN UINT64 Value,
+    IN UINT64 RegionStart,
+    IN UINT64 BlockMask,
     IN BOOLEAN IsLiveBlockMapping) {
     BOOLEAN DisableMmu;
 
@@ -191,10 +190,10 @@ EFI_STATUS
 UpdateRegionMappingRecursive(
     IN UINT64 PhysicalStart,
     IN UINT64 VirtualStart,
-    IN UINT64 VirtualEnd, 
+    IN UINT64 VirtualEnd,
     IN UINT64 AttributeSetMask,
     IN UINT64 *PageTable,
-    IN UINTN Level, 
+    IN UINTN Level,
     IN BOOLEAN ClearMapping,
     IN BOOLEAN TableIsLive
     )
@@ -225,21 +224,21 @@ UpdateRegionMappingRecursive(
         Entry = &PageTable[(RegionStart >> (64 - BlockShift)) &
                            (TT_ENTRY_COUNT - 1)];
 
-        /*  
+        /*
          * 1. If RegionStart or BlockEnd is not aligned to the block size at this
          *  level, we will have to create a table mapping in order to map less
          *  than a block, and recurse to create the block or page entries at
-         *  the next level. 
-         * 2. No block mappings are allowed at all at level 0, so in that case, 
+         *  the next level.
+         * 2. No block mappings are allowed at all at level 0, so in that case,
          *  we have to recurse unconditionally.
-        
+
          * 3. One special case to take into account is any region that covers the
          *  page table itself: if we'd cover such a region with block mappings,
          *  we are more likely to end up in the situation later where we need to
          *  disable the MMU in order to update page table entries safely, so
          *  prefer page mappings in that particular case.
          */
-        if ((Level == 0) || 
+        if ((Level == 0) ||
             (((RegionStart | BlockEnd) & BlockMask) != 0) ||
             ((Level < 3) && (((UINT64)PageTable & ~BlockMask) == RegionStart)) ||
             IsTableEntry(*Entry, Level)) {
@@ -274,18 +273,18 @@ UpdateRegionMappingRecursive(
                      * entry it replaces.
                      */
                     Status = UpdateRegionMappingRecursive(
-                        (RegionStart & ~BlockMask) + AddressOffset, 
-                        RegionStart & ~BlockMask, 
+                        (RegionStart & ~BlockMask) + AddressOffset,
+                        RegionStart & ~BlockMask,
                         (RegionStart | BlockMask) + 1,
-                        *Entry & TT_ATTRIBUTES_MASK, 
+                        *Entry & TT_ATTRIBUTES_MASK,
                         TranslationTable,
-                        Level + 1, 
+                        Level + 1,
                         ClearMapping,
                         FALSE);
 
                     if (EFI_ERROR(Status)) {
                         /*
-                         * The range we passed to UpdateRegionMappingRecursive() 
+                         * The range we passed to UpdateRegionMappingRecursive()
                          * is block aligned, so it is guaranteed that no
                          * further pages were allocated by it, and so we only
                          * have to free the page we allocated here.
@@ -298,7 +297,7 @@ UpdateRegionMappingRecursive(
                 NextTableIsLive = FALSE;
             } else {
                 /*
-                 * If a table entry already exists, we can just use it. 
+                 * If a table entry already exists, we can just use it.
                  */
                 TranslationTable =
                     (VOID *)(UINTN)(*Entry & TT_ADDRESS_MASK_BLOCK_ENTRY);
@@ -309,12 +308,12 @@ UpdateRegionMappingRecursive(
              * Recurse to the next level
              */
             Status = UpdateRegionMappingRecursive(
-                RegionStart + AddressOffset, 
-                RegionStart, 
-                BlockEnd, 
-                AttributeSetMask, 
-                TranslationTable, 
-                Level + 1, 
+                RegionStart + AddressOffset,
+                RegionStart,
+                BlockEnd,
+                AttributeSetMask,
+                TranslationTable,
+                Level + 1,
                 ClearMapping,
                 NextTableIsLive);
             if (EFI_ERROR(Status)) {
@@ -346,8 +345,6 @@ UpdateRegionMappingRecursive(
             } else {
                 EntryValue = 0;
             }
-
-            // TODO：free PTP
 
             ReplaceTableEntry(Entry, EntryValue, RegionStart, BlockMask, FALSE);
         }
@@ -394,7 +391,7 @@ DumpPageTableRecursive(UINT64 *PageTable, UINT64 VirtualStart, UINTN Level)
                  */
                 DumpPageTableRecursive(
                     TranslationTable,
-                    RegionStart, 
+                    RegionStart,
                     Level + 1
                     );
             }
@@ -411,15 +408,15 @@ MapRangeInPageTable(
     IN OUT UINT64 *TranslationTableBasePtr,
     IN EFI_PHYSICAL_ADDRESS PhysicalStart,
     IN EFI_VIRTUAL_ADDRESS VirtualStart,
-    IN EFI_VIRTUAL_ADDRESS VirtualEnd, 
+    IN EFI_VIRTUAL_ADDRESS VirtualEnd,
     IN VMR_PROP_T Flags,
     IN BOOLEAN KernelVMR,
     IN BOOLEAN TableIsLive
-    ) 
+    )
 {
     EFI_STATUS Status;
     UINTN T0SZ;
-    
+
     ASSERT(((VirtualStart | PhysicalStart | VirtualEnd) & EFI_PAGE_MASK) == 0);
 
     T0SZ = ArmGetTCR() & TCR_T0SZ_MASK;
@@ -441,7 +438,7 @@ EFI_STATUS UnmapRangeInPageTable (
 ) {
     EFI_STATUS Status;
     UINTN T0SZ;
-    
+
     ASSERT(((VirtualStart | VirtualEnd) & EFI_PAGE_MASK) == 0);
 
     T0SZ = ArmGetTCR() & TCR_T0SZ_MASK;
@@ -454,7 +451,7 @@ EFI_STATUS UnmapRangeInPageTable (
 }
 
 EFI_STATUS
-CreatePageTable(OUT UINT64 *TranslationTableBasePtr) 
+CreatePageTable(OUT UINT64 *TranslationTableBasePtr)
 {
     VOID *TranslationTable;
     UINTN MaxAddressBits;
@@ -546,7 +543,7 @@ EFI_STATUS InitCorePageTable(UINT64 *CorePageTablePtr)
   if (EFI_ERROR(Status)) {
     SBError("Fail to map range in core page table\n");
   }
-  
+
   return Status;
 #else
   return MapRangeInPageTable(

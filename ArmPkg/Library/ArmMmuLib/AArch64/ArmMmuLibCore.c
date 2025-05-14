@@ -360,7 +360,7 @@ UpdateRegionMappingRecursive (
       EntryValue |= RegionStart;
       EntryValue |= (Level == 3) ? TT_TYPE_BLOCK_ENTRY_LEVEL3
                                  : TT_TYPE_BLOCK_ENTRY;
-
+      EntryValue |= TT_TYPE_NG;
       ReplaceTableEntry (Entry, EntryValue, RegionStart, BlockMask, FALSE);
     }
   }

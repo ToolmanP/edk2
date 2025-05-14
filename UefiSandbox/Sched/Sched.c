@@ -12,7 +12,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox, BOOLEAN TplRaise)
 
   if(CurrentSandbox == Sandbox)
     return Sandbox;
-  
+
   if(TplRaise) {
     Tpl = gBS->RaiseTPL(TPL_HIGH_LEVEL);
   }
@@ -20,7 +20,7 @@ UEFI_SANDBOX *ScheduleToSandboxInternal(UEFI_SANDBOX *Sandbox, BOOLEAN TplRaise)
   PrevSandbox = CurrentSandbox;
   CurrentSandbox = Sandbox;
 
-  SetPageTable((VOID *)Sandbox->TranslationTable);
+  SetPageTable(Sandbox);
 
   if(TplRaise) {
     gBS->RestoreTPL(Tpl); // what would happen if event is notified here.?
