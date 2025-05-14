@@ -75,7 +75,7 @@ EFI_STATUS UnmapRangeInPageTable(IN OUT UINT64 *TranslationTableBasePtr,
                                  IN EFI_VIRTUAL_ADDRESS VirtualEnd,
                                  IN BOOLEAN TableIsLive);
 
-void SetPageTable(void *pgtbl);
+void SetPageTable(IN UEFI_SANDBOX *Sandbox);
 EFI_PHYSICAL_ADDRESS GetPageTable(void);
 
 EFI_STATUS CreateIdenticalPageTable(IN UINT64 SrcPageTable,

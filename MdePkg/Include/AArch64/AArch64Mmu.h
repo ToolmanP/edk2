@@ -48,6 +48,7 @@
 #define TT_ADDRESS_MASK_BLOCK_ENTRY        (0xFFFFFFFFFULL << 12)
 #define TT_ADDRESS_MASK_DESCRIPTION_TABLE  (0xFFFFFFFFFULL << 12)
 
+#define TT_TYPE_NG                BIT11
 #define TT_TYPE_MASK                0x3
 #define TT_TYPE_TABLE_ENTRY         0x3
 #define TT_TYPE_BLOCK_ENTRY         0x1

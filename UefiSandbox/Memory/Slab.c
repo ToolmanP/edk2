@@ -88,9 +88,9 @@ STATIC VOID TryInsertFullSlabToPartial(struct SandboxMallocManager *Manager, str
     }
 
     if (Slab->Executable) {
-        InsertTailList(&Slab->Node, &Manager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList);
+        InsertTailList(&Manager->CodeSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList, &Slab->Node);
     } else {
-        InsertTailList(&Slab->Node, &Manager->DataSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList);
+        InsertTailList(&Manager->DataSlabPool[SLAB_ORDER_TO_INDEX(Slab->Order)].PartialSlabList, &Slab->Node);
     }
 }
 

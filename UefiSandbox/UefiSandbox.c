@@ -334,15 +334,16 @@ StartSandbox(IN EFI_SANDBOX_ARCH_PROTOCOL *This, EFI_HANDLE Handle, IN UINTN San
     DcacheCleanAndInvalidateArea((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
     FlushIcacheRange((UINT64)ReturnTrampoline, (UINT64)ReturnTrampoline + 256);
 
-    DcacheCleanAndInvalidateArea((UINT64)Sandbox->ImageData.Info.ImageBase, Sandbox->ImageData.Info.ImageSize);
-    FlushIcacheRange((UINT64)Sandbox->ImageData.Info.ImageBase, Sandbox->ImageData.Info.ImageSize);
+    // DcacheCleanAndInvalidateArea((UINT64)Sandbox->ImageData.Info.ImageBase, Sandbox->ImageData.Info.ImageSize);
+    // FlushIcacheRange((UINT64)Sandbox->ImageData.Info.ImageBase, Sandbox->ImageData.Info.ImageSize);
 
     DcacheCleanAndInvalidateArea(Sandbox->Context.StackBase, Sandbox->Context.StackBase + DEFAULT_STACK_SIZE);
- 
-    SBDebug("Starting Sandbox %d, PageTable: 0x%lx, ImageHandle: 0x%lx, SystemTable: 0x%lx\n", Sandbox->SandboxID, (UINT64)Sandbox->TranslationTable, Context.X0, Context.X1);
-
+    SBDebug("Starting Sandbox %d, PageTable: 0x%lx, ImageHandle: 0x%lx, SystemTable: 0x%lx\n",
+            Sandbox->SandboxID,
+            (UINT64)Sandbox->TranslationTable,
+            Context.X0,
+            Context.X1);
     ASSERT(&CoreSandbox == ScheduleToSandboxInternal(Sandbox, TRUE));
-
     EretToSandbox(&Context);
 #endif
   }
